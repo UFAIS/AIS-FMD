@@ -1,13 +1,6 @@
 import streamlit as st
 import time 
-
-def animated_typing_title(text, delay=0.03 ):
-    placeholder = st.empty()
-    full_text = ""
-    for char in text:
-        full_text += char
-        placeholder.markdown(f"<h1 style='color:#004080; font-size: 40px;'>{full_text}</h1>", unsafe_allow_html=True)
-        time.sleep(delay)
+from components import animated_typing_title
 
 col1, col2 = st.columns([1, 5])
 

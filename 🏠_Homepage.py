@@ -6,7 +6,7 @@ def animated_typing_title(text, delay=0.03 ):
     full_text = ""
     for char in text:
         full_text += char
-        placeholder.markdown(f"<h1 style='color:#004080; font-size: 48px;'>{full_text}</h1>", unsafe_allow_html=True)
+        placeholder.markdown(f"<h1 style='color:#004080; font-size: 40px;'>{full_text}</h1>", unsafe_allow_html=True)
         time.sleep(delay)
 
 col1, col2 = st.columns([1, 5])

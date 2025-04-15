@@ -1,7 +1,7 @@
 import streamlit as st
 import time 
 
-def animated_typing_title(text, delay=0.03):
+def animated_typing_title(text, delay=0.03 ):
     placeholder = st.empty()
     full_text = ""
     for char in text:
@@ -9,7 +9,14 @@ def animated_typing_title(text, delay=0.03):
         placeholder.markdown(f"<h1 style='color:#004080; font-size: 48px;'>{full_text}</h1>", unsafe_allow_html=True)
         time.sleep(delay)
 
-animated_typing_title("UF AIS Financial Management Application")
+col1, col2 = st.columns([1, 5])
+
+with col1:
+    # Replace 'ais_logo.png' with the path to your logo image file
+    st.image("assets/AIS_Logo.jpg", width=100)
+
+with col2:
+    animated_typing_title("UF AIS Financial Management Application")
 
 st.divider()
 

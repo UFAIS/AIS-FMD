@@ -2,30 +2,27 @@ import streamlit as st
 import pandas as pd 
 from sqlalchemy import create_engine
 import os
-from components import animated_typing_title
 import plotly.express as px 
+import supabase
 from supabase import create_client, Client
+from st_supabase_connection import SupabaseConnection, execute_query
 
 # Connect to supabase
-@st.cache_resource
-def init_connection():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase = init_connection()
+def fetch_data():
+    response = supabase.table("committees").select("*").execute()
+    if response.error:
+        st.error(f"Error fetching data: {response.error}")
+    else:
+        return response.data
 
-# Perform query.
-# Uses st.cache_data to only rerun when the query changes or after 10 min.
-def run_query():
-    return supabase.table("committees").select("*").execute()
+# Display the data in the Streamlit app
+data = fetch_data()
+if data:
+    st.write("### Data from Supabase:", data)
 
-rows = run_query()
-
-# Print results.
-for row in rows.data:
-    st.write(row)
-st.write("hello")
 
 
 

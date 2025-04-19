@@ -6,16 +6,14 @@ import plotly.express as px
 import supabase
 from supabase import create_client, Client
 from st_supabase_connection import SupabaseConnection, execute_query
+from utils import get_supabase
 
-# Get data from secrets
-SUPABASE_URL = st.secrets["supabase"]["url"]
-SUPABASE_KEY = st.secrets["supabase"]["key"]
+# connect to supabase
+supabase = get_supabase()
 
-# Initialize secrets 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-res = supabase.table("committees").select("*").limit(5).execute()
-st.write(res.data)  # should show up to 5 rows now
+res = supabase.table("committees").select("*").execute()
+committee_df = pd.DataFrame(res.data)
+st.write(committee_df)  # should show up to 5 rows now
 
 
 

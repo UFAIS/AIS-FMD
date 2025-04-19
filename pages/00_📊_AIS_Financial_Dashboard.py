@@ -7,22 +7,15 @@ import supabase
 from supabase import create_client, Client
 from st_supabase_connection import SupabaseConnection, execute_query
 
-# Connect to supabase
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# Get data from secrets
+SUPABASE_URL = st.secrets["supabase"]["url"]
+SUPABASE_KEY = st.secrets["supabase"]["key"]
 
-def fetch_data():
-    response = supabase.table("committees").select("*").execute()
-    if response.error:
-        st.error(f"Error fetching data: {response.error}")
-    else:
-        return response.data
+# Initialize secrets 
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Display the data in the Streamlit app
-data = fetch_data()
-if data:
-    st.write("### Data from Supabase:", data)
-
+res = supabase.table("committees").select("*").limit(5).execute()
+st.write(res.data)  # should show up to 5 rows now
 
 
 

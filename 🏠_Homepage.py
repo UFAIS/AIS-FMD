@@ -1,6 +1,8 @@
 import streamlit as st
 import time 
-from components import animated_typing_title
+from components import animated_typing_title, apply_nav_title
+
+apply_nav_title()
 
 col1, col2 = st.columns([1, 5])
 
@@ -29,3 +31,4 @@ Data is pulled from the UF AIS cloud-established database, reviewed and categori
 """)
 
 st.info("Navigate using the sidebar on the left.")
+

@@ -25,7 +25,5 @@ rows = run_query()
 # Print results.
 for row in rows.data:
     st.write(row)
-st.write("hello")
-
 
 

@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd 
 from sqlalchemy import create_engine
 import os
-from components import animated_typing_title
 import plotly.express as px 
+import supabase
 from supabase import create_client, Client
 
 # Connect to supabase
@@ -25,5 +25,7 @@ rows = run_query()
 # Print results.
 for row in rows.data:
     st.write(row)
+st.write("hello")
+
 
 

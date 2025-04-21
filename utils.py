@@ -34,12 +34,28 @@ def load_committee_budgets_df() -> pd.DataFrame:
 @st.cache_data
 def load_transactions_df() -> pd.DataFrame:
     """
-    Fetch the 'transactions' table and return as a DataFrame.
+    Fetch the 'transactions' table using pagination to bypass the 1,000‑row cap.
     """
     supabase = get_supabase()
-    res = supabase.table("transactions").select("*").execute()
-    data = res.data or []
-    return pd.DataFrame(data)
+    all_rows   = []
+    batch_size = 1000
+    offset     = 0
+
+    while True:
+        res = (
+            supabase
+            .table("transactions")
+            .select("*")
+            .range(offset, offset + batch_size - 1)
+            .execute()
+        )
+        batch = res.data or []
+        if not batch:
+            break
+        all_rows.extend(batch)
+        offset += batch_size
+
+    return pd.DataFrame(all_rows)
 
 @st.cache_data
 def load_terms_df() -> pd.DataFrame:

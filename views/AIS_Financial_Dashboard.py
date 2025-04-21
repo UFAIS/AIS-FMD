@@ -13,14 +13,10 @@ df_budgets    = load_committee_budgets_df()
 df_transactions     = load_transactions_df()
 df_terms = load_terms_df()
 
+# function to graph budget usage
 
 
-col1,col2 = st.columns([1, 5])
-with col1:
-    st.image("assets/AIS_Logo.jpg", width=100)
-
-with col2:
-    animated_typing_title("UF AIS Financial Management Application")
+animated_typing_title("UF AIS Financial Management Application")
 
 st.divider()
 
@@ -29,7 +25,12 @@ col1,col2 = st.columns([3,4])
 with col1:
     options = st.selectbox("Which semester would you like to view", list(df_terms["Semester"]), placeholder="Select a term...")
     st.write("You selected:", options)
-   
+  
+
+with col2:
+    option = st.selectbox("Which semester would you like to view", list(df_terms["Semester"]), placeholder="Select a term...",key=1)
+    st.write("You selected:", options)
+
 
 
 

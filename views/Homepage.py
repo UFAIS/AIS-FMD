@@ -4,14 +4,7 @@ from components import animated_typing_title, apply_nav_title
 
 apply_nav_title()
 
-col1, col2 = st.columns([1, 5])
-
-with col1:
-    # Replace 'ais_logo.png' with the path to your logo image file
-    st.image("assets/AIS_Logo.jpg", width=100)
-
-with col2:
-    animated_typing_title("UF AIS Financial Management Application")
+animated_typing_title("UF AIS Financial Management Application")
 
 st.divider()
 

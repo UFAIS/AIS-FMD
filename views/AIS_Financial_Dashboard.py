@@ -120,3 +120,66 @@ with col2:
     )
     st.plotly_chart(fig, use_container_width=True)
 
+st.divider()
+st.write("### Income Analysis")
+
+# Create a new column for income type by filtering the purpose column
+income_df = df_transactions.copy()
+
+# Filter for positive amounts (income only)
+income_df = income_df[income_df["amount"] > 0]
+
+# Categorize income types based on purpose
+income_df["Income_Type"] = "Other"  # Default value
+
+# Map purposes to income types
+income_categories = {
+    "Dues": ["Dues"],
+    "Merchandise": ["Merch", "Head Shot"],
+    "Sponsorship/Donation": ["Sponsorship / Donation"],
+    "Events": ["Social Events", "Formal", "Professional Events", "Fundraiser", "ISOM Passport"],
+    "Refunds": ["Reimbursement", "Refunded"],
+    "Transfers": ["Transfers"]
+}
+
+# Apply categorization
+for category, purposes in income_categories.items():
+    for purpose in purposes:
+        income_df.loc[income_df["purpose"].str.contains(purpose, case=False, na=False), "Income_Type"] = category
+
+# Assign semester using get_semester function
+income_df["Semester"] = income_df["transaction_date"].apply(get_semester)
+
+# Filter by selected semester
+semester_income = income_df[income_df["Semester"] == sem]
+
+# Two-column layout for income charts
+inc_col1, inc_col2 = st.columns(2)
+
+with inc_col1:
+    st.write("#### Income Distribution by Type")
+    # Group by income type and sum amounts
+    income_by_type = semester_income.groupby("Income_Type")["amount"].sum().reset_index()
+    
+    # Create pie chart
+    fig_pie = px.pie(
+        income_by_type,
+        values="amount",
+        names="Income_Type",
+        color="Income_Type",
+        color_discrete_sequence=px.colors.qualitative.G10,
+        hole=0.4  # Makes it a donut chart
+    )
+    
+    # Format hover data to show dollar amounts directly
+    fig_pie.update_traces(
+        textinfo="percent",
+        hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percentage: %{percent}<extra></extra>"
+    )
+    
+    fig_pie.update_layout(margin=dict(t=20, b=20))
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+# Second column is intentionally left empty
+with inc_col2:
+    pass

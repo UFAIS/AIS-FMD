@@ -47,7 +47,7 @@ def main_app(user_email: str):
 
     # Page registration and navigation only after authentication
     PAGE_DEFS = [
-        {"page": "views/homepage.py",                "title": "Homepage",                                    "icon": ":material/home:",         "default": True},
+        {"page": "views/Homepage.py",                "title": "Homepage",                                    "icon": ":material/home:",         "default": True},
         {"page": "views/AIS_Financial_Dashboard.py", "title": "AIS Financial Dashboard",                       "icon": ":material/analytics:"},
         {"page": "views/President.py",               "title": "President Financials",                            "icon": ":material/crown:"},
         {"page": "views/Consulting.py",              "title": "Consulting Financial Dashboard",                  "icon": ":material/enterprise:"},

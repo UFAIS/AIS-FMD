@@ -73,26 +73,16 @@ def load_terms_df() -> pd.DataFrame:
     return pd.DataFrame(data)
 
 # NAVIGATION PAGE
-def register_nav_pages(page_defs: list[dict]) -> list:
-    """
-    Given a list of page definition dicts, register each as a Streamlit Page
-    and return a list of Page objects for use with st.navigation.
-
-    Each dict should contain:
-      - 'page':    path to the .py file (relative to project root)
-      - 'title':   display name in navigation
-      - 'icon':    (optional) emoji or material icon string
-      - 'default': (optional) bool, marks the default landing page
-    """
+def register_nav_pages(PAGE_DEFS):
     pages = []
-    for spec in page_defs:
-        page_obj = st.Page(
-            page    = spec["page"],
-            title   = spec["title"],
-            icon    = spec.get("icon"),
-            default = spec.get("default", False)
+    for defn in PAGE_DEFS:
+        pages.append(
+            st.Page(
+                name=defn["title"],       # correct param
+                path=defn["page"],        # correct param
+                icon=defn.get("icon")     # optional
+            )
         )
-        pages.append(page_obj)
     return pages
 
 # BUDGET USAGE GRAPH

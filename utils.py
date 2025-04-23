@@ -10,6 +10,11 @@ def get_supabase() -> Client:
     key = st.secrets["supabase"]["key"]
     return create_client(url, key)
 
+def get_admin() -> Client:
+    url = st.secrets["supabase"]["url"]
+    service_key = st.secrets["supabase"]["service_key"]
+    return create_client(url, service_key)
+
 # GET TABLES AS DF
 @st.cache_data
 def load_committees_df() -> pd.DataFrame:

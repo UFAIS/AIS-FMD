@@ -2,6 +2,9 @@ import streamlit as st
 import time 
 from components import animated_typing_title, apply_nav_title
 
+user_email = st.session_state.user_email
+st.success(f"Welcome, {user_email}! 👋")
+
 apply_nav_title()
 
 animated_typing_title("UF AIS Financial Management Application")

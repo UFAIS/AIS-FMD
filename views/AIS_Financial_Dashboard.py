@@ -61,10 +61,10 @@ df_txn = (
 # 6. Two‐column layout
 sem = st.selectbox("Which semester would you like to view?", df_terms["Semester"].unique())
 
-col1, col2 = st.columns([3, 4])
+col1, col2 = st.columns([3, 4], border = True)
 
 with col1:
-    # Aggregate spend for that semester
+    # 1) Aggregate spend for that semester
     spend_sem = (
         df_txn
         .query("Semester == @sem")
@@ -73,20 +73,36 @@ with col1:
         .rename(columns={"amount":"Spent"})
     )
 
-    # Merge budgets + spend & compute %
+    # 2) Merge budgets + spend & compute %
     summary = (
         df_budgets_clean.query("Semester == @sem")
         .merge(spend_sem, on="Committee_Name", how="left")
-        .fillna({"Spent": 0,})
+        .fillna({"Spent": 0})
         .assign(**{"% Spent": lambda d: d["Spent"] / d["budget_amount"] * 100})
     )
-    summary["% Spent"].fillna(0,inplace=True)
+    summary["% Spent"].fillna(0, inplace=True)
 
-    st.write(f"#### Spending vs. Budget ({sem})")
-    st.dataframe(
+    # 3) Select & rename columns
+    display_df = (
         summary[["Committee_Name","budget_amount","Spent","% Spent"]]
         .rename(columns={"budget_amount":"Budget"})
+        .reset_index(drop=True).sort_values("% Spent", ascending=False)
     )
+
+    # 4) Build a Styler that forces two decimals
+    styled = (
+        display_df
+        .style
+        .format({
+            "Budget":    "{:.2f}",
+            "Spent":     "{:.2f}",
+            "% Spent":   "{:.2f}%"
+        })
+    )
+
+    # 5) Display it
+    st.write(f"#### Spending vs. Budget ({sem})")
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
 with col2:
     st.write(f"#### % of Budget Spent by Committee ({sem})")
@@ -176,53 +192,136 @@ income_df["Semester"] = income_df["transaction_date"].apply(get_semester)
 semester_income = income_df[income_df["Semester"] == sem]
 
 # Two-column layout for income charts
-inc_col1, inc_col2 = st.columns(2)
+inc_col1, inc_col2 = st.columns([1,1],border = True)
 
 with inc_col1:
+    # 1. Totals
     current_total = semester_income["amount"].sum()
+    prev_semester = get_previous_semester_name(sem)
+    prev_total    = income_df[income_df["Semester"] == prev_semester]["amount"].sum()
+    diff          = current_total - prev_total
 
-    prev_semester = get_previous_semester_name(sem)  
-    prev_income_df = income_df[income_df["Semester"] == prev_semester]
-    prev_total = prev_income_df["amount"].sum()
+    # 2. Show as metrics
+    st.write("### Income Overview")
 
-    # 3. Compute difference
-    diff = current_total - prev_total
+    st.metric(
+        label=f"Total Income ({sem})",
+        value=f"${current_total:,.2f}",
+        border=True
+    )
 
-    # 4. Build a human‑readable message
-    if diff > 0:
-        msg = f"**Income increased by ${diff:,.2f}** compared to {prev_semester}."
-    elif diff < 0:
-        msg = f"**Income decreased by ${abs(diff):,.2f}** compared to {prev_semester}."
-    else:
-        msg = f"**Income was unchanged** compared to {prev_semester}."
+    st.metric(
+        label=f"Change vs {prev_semester}",
+        value="",               # no main value
+        delta=f"${diff:+,.2f}",  # +$XXX or -$XXX
+        border = True
+    )
 
-    # 5. Render as Markdown
-    st.markdown(msg)
-    st.write("### Income Distribution by Type")
-    # Group by income type and sum amounts
-    income_by_type = semester_income.groupby("Income_Type")["amount"].sum().reset_index()
-    st.dataframe(income_by_type)
-    
-    # Create pie chart
+    # 3. Distribution pie chart
+    income_by_type = semester_income.groupby("Income_Type", as_index=False)["amount"].sum()
     fig_pie = px.pie(
         income_by_type,
         values="amount",
         names="Income_Type",
-        color="Income_Type",
         color_discrete_sequence=px.colors.qualitative.G10,
-        hole=0.4,  # Makes it a donut chart
-        title = f"{sem} Income Distribution By Type"
+        hole=0.4,
+        title=f"{sem} Income Distribution By Type"
     )
-    
-    # Format hover data to show dollar amounts directly
     fig_pie.update_traces(
         textinfo="percent+label",
         hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percentage: %{percent}<extra></extra>"
     )
-    
-    fig_pie.update_layout(margin=dict(t=20, b=20))
+    fig_pie.update_layout(margin=dict(t=35, b=20), title_font_size = 20)
+
     st.plotly_chart(fig_pie, use_container_width=True)
 
 # Second column is intentionally left empty
 with inc_col2:
-    pass
+    st.write("### Non-Committee Expenses")
+    
+    # First create a copy with the Semester column
+    temp_trans_df = df_transactions.copy()
+    temp_trans_df["Semester"] = temp_trans_df["transaction_date"].apply(get_semester)
+    
+    # Filter for non-committee expenses
+    noncommittee_expenses = temp_trans_df[
+        (temp_trans_df["amount"] < 0) &  # Expenses (negative amounts)
+        (temp_trans_df["Semester"] == sem)  # Current semester
+    ].copy()
+    
+    # Now merge to get Committee_Type for filtering
+    noncommittee_expenses = noncommittee_expenses.merge(
+        df_committees[["CommitteeID", "Committee_Type"]],
+        left_on="budget_category",
+        right_on="CommitteeID",
+        how="left"
+    )
+    
+    # Filter out committee expenses
+    noncommittee_expenses = noncommittee_expenses[
+        (noncommittee_expenses["Committee_Type"] != "committee") | 
+        (noncommittee_expenses["Committee_Type"].isna())
+    ]
+    
+    # Take absolute value of expenses
+    noncommittee_expenses["amount"] = noncommittee_expenses["amount"].abs()
+    
+    # If there are no non-committee expenses for this semester
+    if noncommittee_expenses.empty:
+        st.info(f"No non-committee expenses found for {sem}")
+    else:
+        # Create expense categories based on the provided purposes
+        expense_mapping = {
+            "Merchandise": ["Merch", "Head Shot"],
+            "Events": ["Social Events", "GBM Catering", "Formal", "Professional Events", "Fundraiser", "Road Trip", "ISOM Passport"],
+            "Food & Drink": ["Food & Drink"],
+            "Travel": ["Travel"],
+            "Reimbursements": ["Reimbursement", "Refunded"],
+            "Transfers": ["Transfers"],
+            "Tax & Fees": ["Tax"],
+            "Miscellaneous": ["Misc."]
+        }
+        
+        # Initialize with default category
+        noncommittee_expenses["Expense_Category"] = "Other"
+        
+        # Apply categorization
+        for category, keywords in expense_mapping.items():
+            for keyword in keywords:
+                noncommittee_expenses.loc[
+                    noncommittee_expenses["purpose"].str.contains(keyword, case=False, na=False), 
+                    "Expense_Category"
+                ] = category
+        
+        # Total non-committee expenses
+        noncommittee_total = noncommittee_expenses["amount"].sum()
+        st.metric(
+            label=f"Total Non-Committee Expenses ({sem})",
+            value=f"${noncommittee_total:,.2f}",
+            border=True
+        )
+        
+        # Group by expense category
+        expense_by_category = noncommittee_expenses.groupby("Expense_Category", as_index=False)["amount"].sum()
+        
+        # Sort by amount for better visualization
+        expense_by_category = expense_by_category.sort_values("amount", ascending=False)
+        
+        # Create pie chart
+        fig_expense_pie = px.pie(
+            expense_by_category,
+            values="amount",
+            names="Expense_Category",
+            color_discrete_sequence=px.colors.qualitative.G10,
+            hole=0.4,
+            title=f"{sem} Non-Committee Expense Distribution"
+        )
+        fig_expense_pie.update_traces(
+            textinfo="percent+label",
+            hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percentage: %{percent}<extra></extra>"
+        )
+        fig_expense_pie.update_layout(margin=dict(t=35, b=20), title_font_size=20)
+        
+        st.plotly_chart(fig_expense_pie, use_container_width=True)
+
+    

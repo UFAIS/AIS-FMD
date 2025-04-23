@@ -17,13 +17,9 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # 2. Parse all date columns to datetime
-df_terms = df_terms.rename(columns={
-    " Start_Date": "Start_Date",   # if you saw a leading space
-    "End_Date ":   "End_Date"      # if you saw a trailing zero-width space
-})
 
 df_terms["Start_Date"] = pd.to_datetime(df_terms["Start_Date"])
-df_terms["End_Date"] = pd.to_datetime(df_terms["End_Date"])
+df_terms["End_Date"]   = pd.to_datetime(df_terms["End_Date"])
 df_transactions["transaction_date"] = pd.to_datetime(df_transactions["transaction_date"])
 
 # 3. Build a “clean” budgets table

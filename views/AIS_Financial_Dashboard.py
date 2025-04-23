@@ -15,12 +15,13 @@ df_transactions = load_transactions_df()
 df_terms = load_terms_df()
 
 # 2. Normalize df_terms column names and ensure required fields
-# Build a mapping of original col -> normalized name
-rename_map = {
-    col: str(col).strip().replace(" ", "_").lower()
-    for col in df_terms.columns
-}
-# Apply renaming in place
+# Remove surrounding quotes and whitespace, replace spaces with underscores, lowercase
+def normalize_col(col):
+    name = str(col).strip().strip("'\"")  # remove surrounding single/double quotes
+    name = name.replace(" ", "_")
+    return name.lower()
+
+rename_map = {col: normalize_col(col) for col in df_terms.columns}
 df_terms.rename(columns=rename_map, inplace=True)
 
 # Verify expected columns exist
@@ -37,7 +38,6 @@ df_transactions["transaction_date"] = pd.to_datetime(df_transactions["transactio
 # 4. Build a “clean” budgets table
 df_budgets_clean = (
     df_budgets
-    .rename(columns={"termid": "termid"})  # ensure matching key
     .merge(df_terms[["termid", "semester"]], on="termid", how="left")
     .merge(
         df_committees[["CommitteeID", "Committee_Name", "Committee_Type"]],
@@ -47,7 +47,7 @@ df_budgets_clean = (
     .loc[:, ["semester", "committeebudgetid", "budget_amount", "Committee_Name"]]
 )
 
-# 5. Helper to assign a semester to each date
+# 5. Helper to assign a semester to each transaction date
 def get_semester(dt: pd.Timestamp) -> str | None:
     if pd.isna(dt):
         return None
@@ -55,7 +55,7 @@ def get_semester(dt: pd.Timestamp) -> str | None:
     hits = df_terms.loc[mask, "semester"]
     return hits.iloc[0] if not hits.empty else None
 
-# 6. Prepare transactions: semester‐tag, join committee info, filter & abs
+# 6. Prepare transactions: semester tag, join committee info, filter & abs
 df_txn = (
     df_transactions
     .assign(semester=df_transactions["transaction_date"].apply(get_semester))
@@ -69,7 +69,10 @@ df_txn = (
 )
 
 # 7. Two-column layout for spending vs. budget
-sem = st.selectbox("Which semester would you like to view?", sorted(df_terms["semester"].dropna().unique()))
+sem = st.selectbox(
+    "Which semester would you like to view?", 
+    sorted(df_terms["semester"].dropna().unique())
+)
 col1, col2 = st.columns([3, 4], border=True)
 
 with col1:

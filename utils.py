@@ -78,9 +78,10 @@ def register_nav_pages(PAGE_DEFS):
     for defn in PAGE_DEFS:
         pages.append(
             st.Page(
-                name=defn["title"],       # correct param
-                path=defn["page"],        # correct param
-                icon=defn.get("icon")     # optional
+                defn["page"],               # <-- positional
+                title=defn["title"],
+                icon=defn.get("icon"),
+                default=defn.get("default", False),
             )
         )
     return pages

@@ -121,7 +121,29 @@ with col2:
     st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
-st.write("### Income Analysis")
+
+# --- assume df_transactions, df_terms, get_semester() are already defined above ---
+
+def get_previous_semester_name(current_semester: str) -> str | None:
+    """
+    Returns the semester immediately before `current_semester`, 
+    based on chronological ordering in df_terms.
+    """
+    # build a list of semesters sorted by start date
+    ordered = (
+        df_terms
+        .drop_duplicates(subset=["Semester", "Start_Date"])
+        .sort_values("Start_Date")
+        ["Semester"]
+        .tolist()
+    )
+    try:
+        idx = ordered.index(current_semester)
+        if idx > 0:
+            return ordered[idx - 1]
+    except ValueError:
+        pass
+    return None
 
 # Create a new column for income type by filtering the purpose column
 income_df = df_transactions.copy()
@@ -157,9 +179,29 @@ semester_income = income_df[income_df["Semester"] == sem]
 inc_col1, inc_col2 = st.columns(2)
 
 with inc_col1:
-    st.write("#### Income Distribution by Type")
+    current_total = semester_income["amount"].sum()
+
+    prev_semester = get_previous_semester_name(sem)  
+    prev_income_df = income_df[income_df["Semester"] == prev_semester]
+    prev_total = prev_income_df["amount"].sum()
+
+    # 3. Compute difference
+    diff = current_total - prev_total
+
+    # 4. Build a human‑readable message
+    if diff > 0:
+        msg = f"**Income increased by ${diff:,.2f}** compared to {prev_semester}."
+    elif diff < 0:
+        msg = f"**Income decreased by ${abs(diff):,.2f}** compared to {prev_semester}."
+    else:
+        msg = f"**Income was unchanged** compared to {prev_semester}."
+
+    # 5. Render as Markdown
+    st.markdown(msg)
+    st.write("### Income Distribution by Type")
     # Group by income type and sum amounts
     income_by_type = semester_income.groupby("Income_Type")["amount"].sum().reset_index()
+    st.dataframe(income_by_type)
     
     # Create pie chart
     fig_pie = px.pie(
@@ -168,12 +210,13 @@ with inc_col1:
         names="Income_Type",
         color="Income_Type",
         color_discrete_sequence=px.colors.qualitative.G10,
-        hole=0.4  # Makes it a donut chart
+        hole=0.4,  # Makes it a donut chart
+        title = f"{sem} Income Distribution By Type"
     )
     
     # Format hover data to show dollar amounts directly
     fig_pie.update_traces(
-        textinfo="percent",
+        textinfo="percent+label",
         hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percentage: %{percent}<extra></extra>"
     )
     

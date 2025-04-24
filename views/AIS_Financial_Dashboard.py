@@ -53,7 +53,7 @@ df_budgets_clean = (
 def get_semester(dt: pd.Timestamp) -> Optional[str]:
     if pd.isna(dt):
         return None
-    mask = (df_terms["start_date"] <= dt) & (df_terms["End_Date"] >= dt)
+    mask = (df_terms["start_date"] <= dt) & (df_terms["end_date"] >= dt)
     semesters = df_terms.loc[mask, "Semester"]
     return semesters.iloc[0] if not semesters.empty else None
 

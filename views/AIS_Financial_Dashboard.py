@@ -18,12 +18,7 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # TESTING
-supabase = create_client(
-  st.secrets["supabase"]["url"],
-  st.secrets["supabase"]["key"],  # <-- anon/auth key
-)
-resp = supabase.from_("terms").select("*").execute()
-st.write(resp.data) 
+st.dataframe(df_terms)
 
 
 

@@ -18,15 +18,12 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # TESTING
-st.dataframe(df_terms)
-supabase_url = st.secrets["supabase"]["url"]
-supabase = create_client(supabase_url, st.secrets["supabase"]["service_key"])
-resp = supabase.table("terms").select("*").execute()
-st.write("Full response dict:", resp.dict())
-st.write("Data field      :", resp.dict().get("data"))
-st.write("Error field     :", resp.dict().get("error"))
-st.write("Count field     :", resp.dict().get("count"))
-
+supabase = create_client(
+  st.secrets["supabase"]["url"],
+  st.secrets["supabase"]["key"],  # <-- anon/auth key
+)
+resp = supabase.from_("terms").select("*").execute()
+st.write(resp.data) 
 
 
 

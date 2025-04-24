@@ -18,12 +18,10 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # TESTING
+st.dataframe(df_terms)
 supabase_url = st.secrets["supabase"]["url"]
 supabase = create_client(supabase_url, st.secrets["supabase"]["service_key"])
 resp = supabase.table("terms").select("*").execute()
-st.write("Status:", resp.status_code)
-st.write("Error:", resp.error)
-st.write("Rows:", resp.data)
 
 
 

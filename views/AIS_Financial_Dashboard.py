@@ -4,6 +4,8 @@ import plotly.express as px
 from utils import load_committees_df, load_committee_budgets_df, load_transactions_df, load_terms_df
 from components import animated_typing_title, apply_nav_title
 from supabase import create_client
+from typing import Optional
+
 
 # Initialize UI
 apply_nav_title()
@@ -48,7 +50,7 @@ df_budgets_clean = (
 )
 
 # 4. Helper: map any date to its semester
-def get_semester(dt: pd.Timestamp) -> str | None:
+def get_semester(dt: pd.Timestamp) -> Optional[str]:
     if pd.isna(dt):
         return None
     mask = (df_terms["start_date"] <= dt) & (df_terms["End_Date"] >= dt)
@@ -123,7 +125,7 @@ with col2:
 st.divider()
 
 # 7. Previous semester helper
-def previous_semester(current: str) -> str | None:
+def previous_semester(current: str) -> Optional[str]:
     ordered = (
         df_terms[["Semester", "start_date"]]
         .drop_duplicates()

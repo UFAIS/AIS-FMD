@@ -22,7 +22,7 @@ supabase_url = st.secrets["supabase"]["url"]
 supabase_key = st.secrets["supabase"]["key"]
 
 supabase = create_client(supabase_url, supabase_key)
-resp = supabase.table("your_table").select("*").execute()
+resp = supabase.table("terms").select("*").execute()
 st.write("Status:", resp.status_code)
 st.write("Error:", resp.error)
 st.write("Rows:", resp.data)

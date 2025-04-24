@@ -22,6 +22,8 @@ st.dataframe(df_terms)
 supabase_url = st.secrets["supabase"]["url"]
 supabase = create_client(supabase_url, st.secrets["supabase"]["service_key"])
 resp = supabase.table("terms").select("*").execute()
+st.write("APIResponse attrs:", [attr for attr in dir(resp) if not attr.startswith("_")])
+
 
 
 

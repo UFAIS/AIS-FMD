@@ -16,6 +16,9 @@ df_budgets      = load_committee_budgets_df()
 df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
+# TESTING
+st.dataframe(df_committees)
+
 # 2. Parse term date columns using their original names
 df_terms["Start_Date"] = pd.to_datetime(df_terms["Start_Date"], errors="raise")
 df_terms["End_Date"]   = pd.to_datetime(df_terms["End_Date"],   errors="raise")

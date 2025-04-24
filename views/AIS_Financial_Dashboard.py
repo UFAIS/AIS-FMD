@@ -18,14 +18,7 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # TESTING
-supabase_url = st.secrets["supabase"]["url"]
-supabase_key = st.secrets["supabase"]["key"]
-
-supabase = create_client(supabase_url, supabase_key)
-resp = supabase.table("terms").select("*").execute()
-st.write("Status:", resp.status_code)
-st.write("Error:", resp.error)
-st.write("Rows:", resp.data)
+st.dataframe(df_terms)
 
 # 2. Parse term date columns using their original names
 df_terms["Start_Date"] = pd.to_datetime(df_terms["Start_Date"], errors="raise")

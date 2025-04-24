@@ -17,7 +17,11 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # TESTING
-st.dataframe(df_committees)
+st.write("Loaded secrets keys:", list(st.secrets.get("supabase", {}).keys()))
+st.write("URL:", st.secrets["supabase"].get("url"))
+# or, if you moved to env vars:
+import os
+st.write("ENV SUPABASE_URL:", os.getenv("SUPABASE_URL"))
 
 # 2. Parse term date columns using their original names
 df_terms["Start_Date"] = pd.to_datetime(df_terms["Start_Date"], errors="raise")

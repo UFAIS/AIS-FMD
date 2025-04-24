@@ -18,13 +18,12 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # TESTING
-st.dataframe(df_terms)
 
 
 
 # 2. Parse term date columns using their original names
-df_terms["Start_Date"] = pd.to_datetime(df_terms["Start_Date"], errors="raise")
-df_terms["End_Date"]   = pd.to_datetime(df_terms["End_Date"],   errors="raise")
+df_terms["start_date"] = pd.to_datetime(df_terms["start_date"], errors="raise")
+df_terms["end_date"]   = pd.to_datetime(df_terms["end_date"],   errors="raise")
 # Parse transaction dates
 df_transactions["transaction_date"] = pd.to_datetime(df_transactions["transaction_date"], errors="coerce")
 
@@ -52,7 +51,7 @@ df_budgets_clean = (
 def get_semester(dt: pd.Timestamp) -> str | None:
     if pd.isna(dt):
         return None
-    mask = (df_terms["Start_Date"] <= dt) & (df_terms["End_Date"] >= dt)
+    mask = (df_terms["start_date"] <= dt) & (df_terms["End_Date"] >= dt)
     semesters = df_terms.loc[mask, "Semester"]
     return semesters.iloc[0] if not semesters.empty else None
 
@@ -126,9 +125,9 @@ st.divider()
 # 7. Previous semester helper
 def previous_semester(current: str) -> str | None:
     ordered = (
-        df_terms[["Semester", "Start_Date"]]
+        df_terms[["Semester", "start_date"]]
         .drop_duplicates()
-        .sort_values("Start_Date")["Semester"].tolist()
+        .sort_values("start_date")["Semester"].tolist()
     )
     if current in ordered:
         idx = ordered.index(current)

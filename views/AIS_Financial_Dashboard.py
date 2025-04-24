@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from utils import load_committees_df, load_committee_budgets_df, load_transactions_df, load_terms_df
 from components import animated_typing_title, apply_nav_title
+from supabase import create_client
 
 # Initialize UI
 apply_nav_title()
@@ -17,11 +18,14 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # TESTING
-st.write("Loaded secrets keys:", list(st.secrets.get("supabase", {}).keys()))
-st.write("URL:", st.secrets["supabase"].get("url"))
-# or, if you moved to env vars:
-import os
-st.write("ENV SUPABASE_URL:", os.getenv("SUPABASE_URL"))
+supabase_url = st.secrets["supabase"]["url"]
+supabase_key = st.secrets["supabase"]["key"]
+
+supabase = create_client(supabase_url, supabase_key)
+resp = supabase.table("your_table").select("*").execute()
+st.write("Status:", resp.status_code)
+st.write("Error:", resp.error)
+st.write("Rows:", resp.data)
 
 # 2. Parse term date columns using their original names
 df_terms["Start_Date"] = pd.to_datetime(df_terms["Start_Date"], errors="raise")

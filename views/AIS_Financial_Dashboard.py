@@ -22,7 +22,10 @@ st.dataframe(df_terms)
 supabase_url = st.secrets["supabase"]["url"]
 supabase = create_client(supabase_url, st.secrets["supabase"]["service_key"])
 resp = supabase.table("terms").select("*").execute()
-st.write("APIResponse attrs:", [attr for attr in dir(resp) if not attr.startswith("_")])
+st.write("Full response dict:", resp.dict())
+st.write("Data field      :", resp.dict().get("data"))
+st.write("Error field     :", resp.dict().get("error"))
+st.write("Count field     :", resp.dict().get("count"))
 
 
 

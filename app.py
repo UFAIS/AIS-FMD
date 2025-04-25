@@ -73,21 +73,48 @@ def main_app(user_email: str):
 def auth_screen():
     st.title("Authentication Page")
     option = st.selectbox("Choose an action:", ["Login", "Sign Up"])
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
+
+    # common inputs
+    email    = st.text_input("Email", key="auth_email")
+    password = st.text_input("Password", type="password", key="auth_pwd")
 
     if option == "Sign Up":
-        if st.button("Register"):
-            user = sign_up(email, password)
-            if user and user.user:
-                st.info("Registration successful. Please log in.")
+        confirm = st.text_input("Confirm Password", type="password", key="auth_confirm")
 
-    elif option == "Login":
+        if st.button("Register"):
+            # 1. validate locally
+            if not email or not password or not confirm:
+                st.error("All fields are required.")
+                return
+            if password != confirm:
+                st.error("Passwords do not match.")
+                return
+            if len(password) < 6:
+                st.error("Password must be at least 6 characters.")
+                return
+
+            # 2. call your existing sign_up()
+            user = sign_up(email, password)
+            if hasattr(user, "error") and user.error:
+                st.error(f"Registration failed: {user.error.message}")
+            elif hasattr(user, "user") and user.user:
+                st.success("Registration successful! Please check your email to confirm.")
+                # optionally switch the UI to Login
+                st.experimental_rerun()
+
+    else:  # Login flow
         if st.button("Login"):
+            if not email or not password:
+                st.error("Enter both email and password.")
+                return
+
             user = sign_in(email, password)
-            if user and user.user:
+            if hasattr(user, "error") and user.error:
+                st.error(f"Login failed: {user.error.message}")
+            elif hasattr(user, "user") and user.user:
                 st.session_state.user_email = user.user.email
-                st.rerun()
+                st.success("Logged in successfully.")
+                st.experimental_rerun()
 
 # Initialize session state for user_email
 if "user_email" not in st.session_state:

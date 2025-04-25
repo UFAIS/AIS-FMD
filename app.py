@@ -72,9 +72,8 @@ def main_app(user_email: str):
 
 def auth_screen():
     st.title("Authentication Page")
-    option = st.selectbox("Choose an action:", ["Login", "Sign Up"])
+    option = st.selectbox("Choose an action:", ["Login", "Sign Up"], key="auth_option")
 
-    # common inputs
     email    = st.text_input("Email", key="auth_email")
     password = st.text_input("Password", type="password", key="auth_pwd")
 
@@ -99,8 +98,8 @@ def auth_screen():
                 st.error(f"Registration failed: {user.error.message}")
             elif hasattr(user, "user") and user.user:
                 st.success("Registration successful! Please check your email to confirm.")
-                # optionally switch the UI to Login
-                st.experimental_rerun()
+                # force a rerun so they can switch to Login
+                st.rerun()
 
     else:  # Login flow
         if st.button("Login"):
@@ -114,7 +113,7 @@ def auth_screen():
             elif hasattr(user, "user") and user.user:
                 st.session_state.user_email = user.user.email
                 st.success("Logged in successfully.")
-                st.experimental_rerun()
+                st.rerun()
 
 # Initialize session state for user_email
 if "user_email" not in st.session_state:

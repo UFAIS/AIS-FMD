@@ -71,75 +71,171 @@ def main_app(user_email: str):
 
 
 def auth_screen():
-    # Create a cleaner layout with columns
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Add custom CSS for styling with pastel blue theme
+    st.markdown("""
+    <style>
+    .auth-card {
+        background-color: white;
+        border-radius: 20px;
+        padding: 2rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        max-width: 400px;
+        margin: 2rem auto;
+    }
+    .auth-header {
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    .auth-subheader {
+        color: #6B7280;
+        font-size: 1rem;
+        margin-bottom: 2rem;
+    }
+    .blue-button {
+        background-color: #A7C7E7;
+        color: #1E3A8A;
+        border-radius: 30px;
+        padding: 0.5rem 1.5rem;
+        border: none;
+        font-weight: bold;
+        text-align: center;
+        transition: all 0.3s;
+        cursor: pointer;
+        width: 100%;
+    }
+    .blue-button:hover {
+        background-color: #83B0E3;
+    }
+    .auth-input {
+        border-radius: 8px;
+        border: 1px solid #E5E7EB;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+        width: 100%;
+    }
+    .auth-link {
+        color: #3B82F6;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+    .auth-corner {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 150px;
+        height: 150px;
+        background-color: #CCDFED;
+        border-radius: 0 0 0 100%;
+        z-index: -1;
+    }
+    .bottom-corner {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 100px;
+        background-color: #A7C7E7;
+        z-index: -1;
+    }
+    </style>
+    
+    <!-- Decorative elements -->
+    <div class="auth-corner"></div>
+    <div class="bottom-corner"></div>
+    """, unsafe_allow_html=True)
+    
+    # Layout with columns to center the card
+    col1, col2, col3 = st.columns([1, 3, 1])
     
     with col2:
-        # Add logo and attractive header
-        st.image("assets/AIS_logo.png", width=200)
-        st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>AIS Financial Portal</h1>", unsafe_allow_html=True)
+        # Create two separate forms - one for login and one for signup
+        option = st.selectbox("Choose an action:", ["Login", "Sign Up"], label_visibility="collapsed")
         
-        # Create a card-like container for the auth form
-        with st.container():
-            st.markdown("""
-            <style>
-            .auth-container {
-                background-color: #f8f9fa;
-                padding: 2rem;
-                border-radius: 10px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-                margin-bottom: 1rem;
-            }
-            </style>
-            <div class="auth-container"></div>
-            """, unsafe_allow_html=True)
+        if option == "Login":
+            st.markdown('<div class="auth-card">', unsafe_allow_html=True)
+            st.markdown('<div class="auth-header">Login</div>', unsafe_allow_html=True)
+            st.markdown('<div class="auth-subheader">Please sign in to continue.</div>', unsafe_allow_html=True)
             
-            # Tabs for login/signup instead of dropdown
-            tab1, tab2 = st.tabs(["Login", "Sign Up"])
-            
-            with tab1:
-                st.subheader("Welcome Back!")
-                email = st.text_input("Email Address", key="login_email")
-                password = st.text_input("Password", type="password", key="login_password")
+            # Login form
+            with st.form("login_form"):
+                email = st.text_input("Email", placeholder="your.email@example.com")
+                password = st.text_input("Password", type="password", placeholder="********")
                 
                 # Full-width button with custom styling
-                if st.button("Login", type="primary", use_container_width=True):
-                    with st.spinner("Authenticating..."):
-                        user = sign_in(email, password)
-                        if user and user.user:
-                            st.balloons()  # Add animation effect on successful login
-                            st.session_state.user_email = user.user.email
-                            st.rerun()
+                submit_button = st.form_submit_button("LOGIN")
+                
+                # Apply blue button styling
+                st.markdown("""
+                <script>
+                    const buttons = window.parent.document.querySelectorAll('button[kind="primaryFormSubmit"]');
+                    for (let i = 0; i < buttons.length; i++) {
+                        buttons[i].classList.add('blue-button');
+                    }
+                </script>
+                """, unsafe_allow_html=True)
             
-            with tab2:
-                st.subheader("Create Account")
-                email = st.text_input("Email Address", key="signup_email")
-                password = st.text_input("Password", type="password", key="signup_password")
-                confirm_password = st.text_input("Confirm Password", type="password")
+            if submit_button:
+                with st.spinner("Logging in..."):
+                    user = sign_in(email, password)
+                    if user and user.user:
+                        st.session_state.user_email = user.user.email
+                        st.rerun()
+            
+            # Account signup link
+            st.markdown('<div style="text-align: center; margin-top: 1rem;">Don\'t have an account? <a href="#" onclick="document.querySelector(\'select\').value=\'Sign Up\'; document.querySelector(\'select\').dispatchEvent(new Event(\'change\'));" class="auth-link">Sign up</a></div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        else:  # Sign Up
+            st.markdown('<div class="auth-card">', unsafe_allow_html=True)
+            st.markdown('<div class="auth-header">Create Account</div>', unsafe_allow_html=True)
+            st.markdown('<div class="auth-subheader">Please fill in your details.</div>', unsafe_allow_html=True)
+            
+            # Sign up form
+            with st.form("signup_form"):
+                email = st.text_input("Email", placeholder="your.email@example.com")
+                password = st.text_input("Password", type="password", placeholder="********")
+                confirm_password = st.text_input("Confirm Password", type="password", placeholder="********")
                 
-                # Add password strength indicator
-                if password:
-                    if len(password) < 8:
-                        st.warning("Password should be at least 8 characters")
-                    elif password != confirm_password and confirm_password:
-                        st.error("Passwords don't match")
-                
-                if st.button("Register", type="primary", use_container_width=True):
+                # Password validation
+                if password and confirm_password:
                     if password != confirm_password:
-                        st.error("Passwords don't match")
-                    else:
-                        with st.spinner("Creating your account..."):
-                            user = sign_up(email, password)
-                            if user and user.user:
-                                st.success("Registration successful! Please log in.")
-        
-        # Add some helpful information
-        with st.expander("Need Help?"):
-            st.markdown("""
-            - **Forgot Password?** Contact the Treasury Committee
-            - **New User?** Create an account with your UF email
-            - **Having Issues?** Email ais.treasury@warrington.ufl.edu
-            """)
+                        st.warning("Passwords don't match")
+                
+                # Full-width button with custom styling
+                submit_button = st.form_submit_button("SIGN UP")
+                
+                # Apply blue button styling
+                st.markdown("""
+                <script>
+                    const buttons = window.parent.document.querySelectorAll('button[kind="primaryFormSubmit"]');
+                    for (let i = 0; i < buttons.length; i++) {
+                        buttons[i].classList.add('blue-button');
+                    }
+                </script>
+                """, unsafe_allow_html=True)
+            
+            if submit_button:
+                if password != confirm_password:
+                    st.error("Passwords don't match")
+                else:
+                    with st.spinner("Creating your account..."):
+                        user = sign_up(email, password)
+                        if user and user.user:
+                            st.success("Registration successful! Please log in.")
+            
+            # Login link
+            st.markdown('<div style="text-align: center; margin-top: 1rem;">Already have an account? <a href="#" onclick="document.querySelector(\'select\').value=\'Login\'; document.querySelector(\'select\').dispatchEvent(new Event(\'change\'));" class="auth-link">Sign in</a></div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+    # Hide the selectbox using CSS
+    st.markdown("""
+    <style>
+    [data-testid="stSelectbox"] {
+        display: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 # Initialize session state for user_email

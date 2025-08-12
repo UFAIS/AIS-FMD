@@ -93,7 +93,7 @@ def fetch_term_budget_usage(term: str):
     term_data = (
         supabase
         .table("terms")
-        .select("TermID,Start_Date,End_Date,Semester")
+        .select("TermID,start_date,end_date,Semester")  # Using correct column names
         .eq("Semester", term)
         .single()
         .execute()
@@ -104,8 +104,8 @@ def fetch_term_budget_usage(term: str):
         return None
 
     term_id    = term_data["TermID"]
-    start_date = term_data["Start_Date"]
-    end_date   = term_data["End_Date"]
+    start_date = term_data["start_date"]  # Changed from "Start_Date" to "start_date"
+    end_date   = term_data["end_date"]  
 
     # 2) Fetch budgets (with committee info) for that term
     budgets_res = (

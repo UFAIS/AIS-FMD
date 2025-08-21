@@ -415,40 +415,45 @@ elif page == "💰 Manage Budgets":
         
         # Get committees
         committees = df_committees[df_committees["Committee_Type"] == "committee"]["Committee_Name"].tolist()
+        committee_ids = df_committees[df_committees["Committee_Type"] == "committee"][["CommitteeID", "Committee_Name"]]
         
         budget_inputs = {}
         col1, col2 = st.columns(2)
         
         for i, committee in enumerate(committees):
+            # GET EXISTING BUDGET VALUE FOR THIS COMMITTEE - THIS IS THE NEW CODE
+            existing_budget = 0.0
+            if not term_budgets.empty:
+                committee_id = committee_ids[committee_ids["Committee_Name"] == committee]["CommitteeID"].iloc[0]
+                matching_budgets = term_budgets[term_budgets["committeeid"] == committee_id]
+                if not matching_budgets.empty:
+                    existing_budget = float(matching_budgets["budget_amount"].iloc[0])
+            
             with col1 if i % 2 == 0 else col2:
                 budget_inputs[committee] = st.number_input(
                     f"{committee} Budget",
                     min_value=0.0,
-                    value=0.0,
+                    value=existing_budget,  # USE EXISTING VALUE INSTEAD OF 0.0
                     step=100.0,
                     format="%.2f"
                 )
         
         if st.button("💾 Save Budgets"):
             try:
-                # Get committee IDs
-                committee_ids = df_committees[df_committees["Committee_Type"] == "committee"][["CommitteeID", "Committee_Name"]]
-                
                 # Delete existing budgets for this term
                 supabase.table("committeebudgets").delete().eq("termid", selected_term).execute()
                 
-                # Insert new budgets
+                # Insert new budgets - CHANGED TO INCLUDE ALL VALUES, NOT JUST > 0
                 for committee_name, budget_amount in budget_inputs.items():
-                    if budget_amount > 0:
-                        committee_id = committee_ids[committee_ids["Committee_Name"] == committee_name]["CommitteeID"].iloc[0]
-                        
-                        budget_data = {
-                            "termid": selected_term,
-                            "committeeid": int(committee_id),
-                            "budget_amount": float(budget_amount)
-                        }
-                        
-                        supabase.table("committeebudgets").insert(budget_data).execute()
+                    committee_id = committee_ids[committee_ids["Committee_Name"] == committee_name]["CommitteeID"].iloc[0]
+                    
+                    budget_data = {
+                        "termid": selected_term,
+                        "committeeid": int(committee_id),
+                        "budget_amount": float(budget_amount)
+                    }
+                    
+                    supabase.table("committeebudgets").insert(budget_data).execute()
                 
                 st.success("✅ Budgets saved successfully!")
                 st.cache_data.clear()

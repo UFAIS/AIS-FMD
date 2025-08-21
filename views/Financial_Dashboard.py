@@ -1,0 +1,512 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from utils import load_committees_df, load_committee_budgets_df, load_transactions_df, load_terms_df
+from components import animated_typing_title, apply_nav_title
+
+# Initialize UI
+apply_nav_title()
+animated_typing_title("UF AIS Financial Dashboard")
+st.divider()
+
+st.markdown("""
+### 📊 UF AIS Financial Dashboard
+
+Get a **clear and engaging view** of UF AIS financial data across all committees and semesters!  
+
+**How to use:**
+- 🗂 **Select a semester & committee** from the sidebar filters  
+- 💰 Analyze **spending patterns**, **budget utilization**, and **financial trends**  
+- 📈 See how **metrics change** compared to the previous semester  
+- ⏳ Track financial performance **over time** with ease  
+
+""")
+
+st.divider()
+
+# Load data
+@st.cache_data
+def load_data():
+    df_committees = load_committees_df()
+    df_budgets = load_committee_budgets_df()
+    df_transactions = load_transactions_df()
+    df_terms = load_terms_df()
+    
+    # Parse dates
+    df_terms["start_date"] = pd.to_datetime(df_terms["start_date"], errors="coerce")
+    df_terms["end_date"] = pd.to_datetime(df_terms["end_date"], errors="coerce")
+    df_transactions["transaction_date"] = pd.to_datetime(df_transactions["transaction_date"], errors="coerce")
+    
+    return df_committees, df_budgets, df_transactions, df_terms
+
+df_committees, df_budgets, df_transactions, df_terms = load_data()
+
+# Helper function to map dates to semesters
+def get_semester(dt: pd.Timestamp) -> str | None:
+    if pd.isna(dt):
+        return None
+    mask = (df_terms["start_date"] <= dt) & (df_terms["end_date"] >= dt)
+    semesters = df_terms.loc[mask, "Semester"]
+    return semesters.iloc[0] if not semesters.empty else None
+
+# Sidebar filters
+st.sidebar.header("📊 Dashboard Filters")
+
+# Semester filter - sort chronologically by start date
+available_semesters = (
+    df_terms[["Semester", "start_date"]]
+    .dropna()
+    .sort_values("start_date")
+    ["Semester"]
+    .tolist()
+)
+selected_semester = st.sidebar.selectbox(
+    "Select Semester",
+    available_semesters,
+    index=len(available_semesters) - 1 if available_semesters else 0
+)
+
+# Committee filter
+committee_options = ["All Committees"] + sorted(df_committees[df_committees["Committee_Type"] == "committee"]["Committee_Name"].tolist())
+selected_committee = st.sidebar.selectbox("Select Committee", committee_options)
+
+# Main dashboard content
+st.header("💰 Financial Overview")
+
+# Key metrics row
+col1, col2, col3, col4 = st.columns(4)
+
+# Helper function to get previous semester
+def get_previous_semester(current_semester):
+    """Get the previous semester from the list of available semesters"""
+    if current_semester in available_semesters:
+        current_index = available_semesters.index(current_semester)
+        if current_index > 0:
+            return available_semesters[current_index - 1]
+    return None
+
+# Helper function to get next semester (for debugging)
+def get_next_semester(current_semester):
+    """Get the next semester from the list of available semesters"""
+    if current_semester in available_semesters:
+        current_index = available_semesters.index(current_semester)
+        if current_index < len(available_semesters) - 1:
+            return available_semesters[current_index + 1]
+    return None
+
+# Filter transactions based on selections
+filtered_transactions = df_transactions.copy()
+filtered_transactions["Semester"] = filtered_transactions["transaction_date"].apply(get_semester)
+filtered_transactions = filtered_transactions[filtered_transactions["Semester"] == selected_semester]
+
+# Get previous semester data for comparison
+previous_semester = get_previous_semester(selected_semester)
+if previous_semester:
+    previous_transactions = df_transactions.copy()
+    previous_transactions["Semester"] = previous_transactions["transaction_date"].apply(get_semester)
+    previous_transactions = previous_transactions[previous_transactions["Semester"] == previous_semester]
+else:
+    previous_transactions = pd.DataFrame(columns=filtered_transactions.columns)
+
+# Calculate metrics for current semester
+total_income = filtered_transactions[filtered_transactions["amount"] > 0]["amount"].sum()
+total_expenses = abs(filtered_transactions[filtered_transactions["amount"] < 0]["amount"].sum())
+net_income = total_income - total_expenses
+total_transactions = len(filtered_transactions)
+
+# Calculate metrics for previous semester
+prev_total_income = previous_transactions[previous_transactions["amount"] > 0]["amount"].sum()
+prev_total_expenses = abs(previous_transactions[previous_transactions["amount"] < 0]["amount"].sum())
+prev_net_income = prev_total_income - prev_total_expenses
+prev_total_transactions = len(previous_transactions)
+
+# Calculate deltas (current - previous)
+income_delta = round(total_income - prev_total_income, 2)
+expenses_delta = round(total_expenses - prev_total_expenses, 2)
+net_income_delta = round(net_income - prev_net_income, 2)
+transactions_delta = total_transactions - prev_total_transactions
+
+# Debug information (can be removed later)
+if st.sidebar.checkbox("Show Debug Info"):
+    st.sidebar.write(f"**Current Semester:** {selected_semester}")
+    st.sidebar.write(f"**Previous Semester:** {previous_semester}")
+    st.sidebar.write(f"**Current Income:** ${total_income:,.2f}")
+    st.sidebar.write(f"**Previous Income:** ${prev_total_income:,.2f}")
+    st.sidebar.write(f"**Income Delta:** ${income_delta:,.2f}")
+    st.sidebar.write(f"**Available Semesters:** {available_semesters}")
+
+with col1:
+    st.metric(
+        label="Total Income",
+        value=f"${total_income:,.2f}",
+        delta=income_delta,
+        delta_color="normal"
+    )
+
+with col2:
+    st.metric(
+        label="Total Expenses",
+        value=f"${total_expenses:,.2f}",
+        delta=expenses_delta,
+        delta_color="normal"
+    )
+
+with col3:
+    st.metric(
+        label="Net Income",
+        value=f"${net_income:,.2f}",
+        delta=net_income_delta,
+        delta_color="normal"
+    )
+
+with col4:
+    st.metric(
+        label="Total Transactions",
+        value=f"{total_transactions:,}",
+        delta=transactions_delta,
+        delta_color="normal"
+    )
+
+st.divider()
+
+# Budget vs Spending Analysis
+st.header("📈 Budget vs Spending Analysis")
+
+# Prepare budget data
+df_budgets_clean = (
+    df_budgets
+    .merge(df_terms[["TermID", "Semester"]], left_on="termid", right_on="TermID", how="left")
+    .merge(df_committees[["CommitteeID", "Committee_Name", "Committee_Type"]], 
+           left_on="committeeid", right_on="CommitteeID", how="left")
+    .query("Committee_Type == 'committee'")
+    .loc[:, ["Semester", "committeebudgetid", "budget_amount", "Committee_Name"]]
+)
+
+# Prepare spending data
+df_spending = (
+    filtered_transactions
+    .merge(df_committees[["CommitteeID", "Committee_Name", "Committee_Type"]], 
+           left_on="budget_category", right_on="CommitteeID", how="left")
+    .query("Committee_Type == 'committee' and amount < 0")
+    .assign(amount=lambda d: d["amount"].abs())
+    .groupby("Committee_Name", as_index=False)["amount"].sum()
+    .rename(columns={"amount": "Spent"})
+)
+
+# Combine budget and spending
+summary = (
+    df_budgets_clean.query("Semester == @selected_semester")
+    .merge(df_spending, on="Committee_Name", how="left")
+    .fillna({"Spent": 0})
+    .assign(**{"% Spent": lambda d: d["Spent"] / d["budget_amount"] * 100})
+)
+
+# Filter by selected committee if not "All"
+if selected_committee != "All Committees":
+    summary = summary[summary["Committee_Name"] == selected_committee]
+
+summary["% Spent"].fillna(0, inplace=True)
+df_display = summary.rename(columns={"budget_amount": "Budget"})[["Committee_Name", "Budget", "Spent", "% Spent"]]
+
+# Display table and chart
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.subheader("Budget Summary")
+    st.dataframe(
+        df_display.sort_values("% Spent", ascending=False)
+        .style.format({"Budget": "${:,.2f}", "Spent": "${:,.2f}", "% Spent": "{:.1f}%"}),
+        use_container_width=True,
+        hide_index=True
+    )
+
+with col2:
+    if not df_display.empty:
+        # Sort data for display
+        sorted_data = df_display.sort_values("% Spent", ascending=True)
+        
+        fig = px.bar(
+            sorted_data,
+            x="% Spent",
+            y="Committee_Name",
+            orientation="h",
+            text=sorted_data["% Spent"].round(1).astype(str) + "%",
+            labels={"% Spent": "% of Budget Spent", "Committee_Name": "Committee"},
+            color="% Spent",
+            color_continuous_scale="Blues",
+            custom_data=["Committee_Name", "% Spent", "Spent", "Budget"]
+        )
+        
+        fig.update_traces(
+            hovertemplate="<b>%{customdata[0]}</b><br>" +
+                         "Percent Spent: %{customdata[1]:.1f}%<br>" +
+                         "Spent: $%{customdata[2]:,.2f}<br>" +
+                         "Budget: $%{customdata[3]:,.2f}<extra></extra>",
+            showlegend=False
+        )
+        
+        max_val = max(100, sorted_data["% Spent"].max() * 1.1)
+        fig.update_layout(
+            xaxis=dict(range=[0, max_val]),
+            margin=dict(l=150, r=20, t=20, b=20),
+            height=400,
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No budget data available for the selected filters.")
+
+st.divider()
+
+# Income and Expense Breakdown
+st.header("💸 Income & Expense Breakdown")
+
+# Apply committee filter to income and expense data
+if selected_committee != "All Committees":
+    committee_id = df_committees[df_committees["Committee_Name"] == selected_committee]["CommitteeID"].iloc[0]
+    filtered_transactions_for_categories = filtered_transactions[filtered_transactions["budget_category"] == committee_id]
+else:
+    filtered_transactions_for_categories = filtered_transactions
+
+# Income analysis
+income_data = filtered_transactions_for_categories[filtered_transactions_for_categories["amount"] > 0].copy()
+income_data["Income_Type"] = "Other"
+
+# Categorize income
+income_categories = {
+    "Dues": ["Dues"],
+    "Merchandise": ["Merch", "Head Shot"],
+    "Sponsorship/Donation": ["Sponsorship", "Donation"],
+    "Events": ["Social Events", "Formal", "Professional Events", "Fundraiser", "ISOM Passport"],
+    "Refunds": ["Reimbursement", "Refunded"],
+    "Transfers": ["Transfers"]
+}
+
+for category, keywords in income_categories.items():
+    for keyword in keywords:
+        income_data.loc[income_data["purpose"].str.contains(keyword, case=False, na=False), "Income_Type"] = category
+
+# Expense analysis
+expense_data = filtered_transactions_for_categories[filtered_transactions_for_categories["amount"] < 0].copy()
+expense_data["amount"] = expense_data["amount"].abs()
+expense_data["Expense_Type"] = "Other"
+
+# Categorize expenses
+expense_categories = {
+    "Merchandise": ["Merch", "Head Shot"],
+    "Events": ["Social Events", "GBM Catering", "Formal", "Professional Events", "Fundraiser", "Road Trip", "ISOM Passport"],
+    "Food & Drink": ["Food", "Drink", "Catering"],
+    "Travel": ["Travel"],
+    "Reimbursements": ["Reimbursement", "Refunded"],
+    "Transfers": ["Transfers"],
+    "Tax & Fees": ["Tax"],
+    "Miscellaneous": ["Misc"]
+}
+
+for category, keywords in expense_categories.items():
+    for keyword in keywords:
+        expense_data.loc[expense_data["purpose"].str.contains(keyword, case=False, na=False), "Expense_Type"] = category
+
+# Display charts
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Income by Category")
+    if not income_data.empty:
+        income_by_type = income_data.groupby("Income_Type", as_index=False)["amount"].sum()
+        fig_income = px.pie(
+            income_by_type, 
+            values="amount", 
+            names="Income_Type", 
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        fig_income.update_traces(
+            textinfo="percent+label",
+            hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percent: %{percent}<extra></extra>"
+        )
+        fig_income.update_layout(margin=dict(t=20, b=20), height=400)
+        st.plotly_chart(fig_income, use_container_width=True)
+    else:
+        st.info("No income data available for the selected period.")
+
+with col2:
+    st.subheader("Expenses by Category")
+    if not expense_data.empty:
+        expense_by_type = expense_data.groupby("Expense_Type", as_index=False)["amount"].sum()
+        fig_expense = px.pie(
+            expense_by_type, 
+            values="amount", 
+            names="Expense_Type", 
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set1
+        )
+        fig_expense.update_traces(
+            textinfo="percent+label",
+            hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percent: %{percent}<extra></extra>"
+        )
+        fig_expense.update_layout(margin=dict(t=20, b=20), height=400)
+        st.plotly_chart(fig_expense, use_container_width=True)
+    else:
+        st.info("No expense data available for the selected period.")
+
+st.divider()
+
+# Member Count Analysis
+st.header("👥 Membership Trends")
+
+# Calculate member count for each semester based on dues transactions
+def calculate_member_count_by_semester():
+    """Calculate member count for each semester based on dues transactions"""
+    # Filter for dues transactions (budget_category = 1 and purpose = "Dues")
+    dues_transactions = df_transactions[
+        (df_transactions["budget_category"] == 1) & 
+        (df_transactions["purpose"].str.contains("Dues", case=False, na=False))
+    ].copy()
+    
+    # Add semester information
+    dues_transactions["Semester"] = dues_transactions["transaction_date"].apply(get_semester)
+    
+    # Group by semester and count unique transactions (each transaction = 1 member)
+    member_counts = (
+        dues_transactions
+        .dropna(subset=["Semester"])
+        .groupby("Semester", as_index=False)
+        .size()
+        .rename(columns={"size": "Member_Count"})
+    )
+    
+    # Sort by semester chronologically
+    member_counts = member_counts.merge(
+        df_terms[["Semester", "start_date"]], 
+        on="Semester", 
+        how="left"
+    ).sort_values("start_date")
+    
+    return member_counts[["Semester", "Member_Count"]]
+
+# Get member count data
+member_data = calculate_member_count_by_semester()
+
+if not member_data.empty:
+    # Display member count metrics
+    col1, col2, col3 = st.columns(3)
+    
+    current_members = int(member_data["Member_Count"].iloc[-1]) if len(member_data) > 0 else 0
+    previous_members = int(member_data["Member_Count"].iloc[-2]) if len(member_data) > 1 else 0
+    member_delta = int(current_members - previous_members)
+    
+    with col1:
+        st.metric(
+            label="Current Semester Members",
+            value=f"{current_members:,}",
+            delta=member_delta if len(member_data) > 1 else None
+        )
+    
+    with col2:
+        total_members_ever = member_data["Member_Count"].sum()
+        st.metric(
+            label="Total Members (All Time)",
+            value=f"{total_members_ever:,}"
+        )
+    
+    with col3:
+        avg_members_per_semester = member_data["Member_Count"].mean()
+        st.metric(
+            label="Average Members/Semester",
+            value=f"{avg_members_per_semester:.0f}"
+        )
+    
+    # Create member count trend chart
+    st.subheader("Membership Growth Over Time")
+    
+    fig_members = px.line(
+        member_data,
+        x="Semester",
+        y="Member_Count",
+        markers=True,
+        title="Member Count by Semester",
+        labels={"Member_Count": "Number of Members", "Semester": "Semester"},
+        line_shape="linear"
+    )
+    
+    # Add data points and improve styling
+    fig_members.update_traces(
+        line=dict(width=3, color="#1f77b4"),
+        marker=dict(size=8, color="#1f77b4"),
+        hovertemplate="<b>%{x}</b><br>Members: %{y}<extra></extra>"
+    )
+    
+    fig_members.update_layout(
+        height=400,
+        xaxis=dict(
+            tickangle=45,
+            tickmode='array',
+            ticktext=member_data["Semester"].tolist(),
+            tickvals=member_data["Semester"].tolist()
+        ),
+        yaxis=dict(
+            rangemode='tozero',
+            tickformat=',d'
+        ),
+        hovermode='x unified',
+        showlegend=False
+    )
+    
+    st.plotly_chart(fig_members, use_container_width=True)
+    
+    # Display member count table
+    st.subheader("Detailed Member Counts")
+    st.dataframe(
+        member_data.style.format({"Member_Count": "{:,}"}),
+        use_container_width=True,
+        hide_index=True
+    )
+    
+else:
+    st.info("No dues transactions found to calculate member counts.")
+
+st.divider()
+
+# Recent Transactions
+st.header("📋 Recent Transactions")
+
+# Apply committee filter to recent transactions
+if selected_committee != "All Committees":
+    committee_id = df_committees[df_committees["Committee_Name"] == selected_committee]["CommitteeID"].iloc[0]
+    filtered_transactions_for_recent = filtered_transactions[filtered_transactions["budget_category"] == committee_id]
+else:
+    filtered_transactions_for_recent = filtered_transactions
+
+# Show recent transactions
+recent_transactions = (
+    filtered_transactions_for_recent
+    .merge(df_committees[["CommitteeID", "Committee_Name"]], 
+           left_on="budget_category", right_on="CommitteeID", how="left")
+    .sort_values("transaction_date", ascending=False)
+    .head(100)
+    [["transaction_date", "amount", "details", "purpose"]]
+    .rename(columns={
+        "transaction_date": "Date",
+        "amount": "Amount",
+        "details": "Details",
+        "purpose": "Purpose",
+    })
+)
+
+if not recent_transactions.empty:
+    st.dataframe(
+        recent_transactions.style.format({
+            "Amount": "${:,.2f}",
+            "Date": lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else ""
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.info("No transactions found for the selected filters.")
+
+

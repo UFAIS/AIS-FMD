@@ -3,6 +3,9 @@ import pandas as pd
 import plotly.express as px
 from utils import load_committees_df, load_committee_budgets_df, load_transactions_df, load_terms_df
 from components import animated_typing_title, apply_nav_title
+from supabase import create_client
+from typing import Optional
+
 
 # Initialize UI
 apply_nav_title()
@@ -17,12 +20,6 @@ df_transactions = load_transactions_df()
 df_terms        = load_terms_df()
 
 # TESTING
-st.dataframe(df_committees)
-st.write("Terms DataFrame columns:", list(df_terms.columns))
-st.write("Transactions DataFrame columns:", list(df_transactions.columns))
-url = st.secrets["supabase"]["url"]
-key = st.secrets["supabase"]["key"]
-
 
 
 
@@ -53,10 +50,10 @@ df_budgets_clean = (
 )
 
 # 4. Helper: map any date to its semester
-def get_semester(dt: pd.Timestamp) -> str | None:
+def get_semester(dt: pd.Timestamp) -> Optional[str]:
     if pd.isna(dt):
         return None
-    mask = (df_terms["start_date"] <= dt) & (df_terms["end_date"] >= dt)  # Fixed column names
+    mask = (df_terms["start_date"] <= dt) & (df_terms["end_date"] >= dt)
     semesters = df_terms.loc[mask, "Semester"]
     return semesters.iloc[0] if not semesters.empty else None
 
@@ -128,11 +125,11 @@ with col2:
 st.divider()
 
 # 7. Previous semester helper
-def previous_semester(current: str) -> str | None:
+def previous_semester(current: str) -> Optional[str]:
     ordered = (
-        df_terms[["Semester", "start_date"]]  # Fixed column name
+        df_terms[["Semester", "start_date"]]
         .drop_duplicates()
-        .sort_values("start_date")["Semester"].tolist()  # Fixed column name
+        .sort_values("start_date")["Semester"].tolist()
     )
     if current in ordered:
         idx = ordered.index(current)

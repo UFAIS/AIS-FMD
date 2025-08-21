@@ -1,8 +1,19 @@
 [theme]
-primaryColor="#6db0dc"
-backgroundColor="#1b4965"
-secondaryBackgroundColor="#2d97d6"
+<<<<<<< HEAD
+base="dark"
+primaryColor="#1DB9FF"          # Blue accent instead of green
+backgroundColor="#191414"       # Spotify dark background
+secondaryBackgroundColor="#282828"  # Card/Sidebar background
+textColor="#FFFFFF"             # White text
+font="sans serif"
+
+=======
+primaryColor="#519ac9"
+backgroundColor="#001c55"
+secondaryBackgroundColor="#0e6ba8"
 textColor="#ffffff"
+>>>>>>> b4a4dff2592d7042b3d4ed8568fc50bf15d01ba9
+
 
 
 

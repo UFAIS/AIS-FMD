@@ -16,7 +16,7 @@ def get_admin() -> Client:
     return create_client(url, service_key)
 
 # GET TABLES AS DF
-@st.cache_data
+@st.cache_data(ttl=300)  # Cache for 5 minutes with TTL
 def load_committees_df() -> pd.DataFrame:
     """
     Fetch the 'committees' table and return as a DataFrame.
@@ -26,7 +26,7 @@ def load_committees_df() -> pd.DataFrame:
     data = res.data or []
     return pd.DataFrame(data)
 
-@st.cache_data
+@st.cache_data(ttl=300)  # Cache for 5 minutes with TTL
 def load_committee_budgets_df() -> pd.DataFrame:
     """
     Fetch the 'committeebudgets' table and return as a DataFrame.
@@ -36,7 +36,7 @@ def load_committee_budgets_df() -> pd.DataFrame:
     data = res.data or []
     return pd.DataFrame(data)
 
-@st.cache_data
+@st.cache_data(ttl=300)  # Cache for 5 minutes with TTL
 def load_transactions_df() -> pd.DataFrame:
     """
     Fetch the 'transactions' table using pagination to bypass the 1,000‑row cap.
@@ -62,7 +62,7 @@ def load_transactions_df() -> pd.DataFrame:
 
     return pd.DataFrame(all_rows)
 
-@st.cache_data
+@st.cache_data(ttl=300)  # Cache for 5 minutes with TTL
 def load_terms_df() -> pd.DataFrame:
     """
     Fetch the 'terms' table and return as a DataFrame.
@@ -86,6 +86,14 @@ def register_nav_pages(PAGE_DEFS):
         )
     return pages
 
+def clear_user_specific_cache():
+    """Clear cache when user switches or logs out"""
+    try:
+        st.cache_data.clear()
+        st.cache_resource.clear()
+    except:
+        pass
+
 # BUDGET USAGE GRAPH
 def fetch_term_budget_usage(term: str):
     supabase = get_supabase()
@@ -93,7 +101,11 @@ def fetch_term_budget_usage(term: str):
     term_data = (
         supabase
         .table("terms")
+<<<<<<< HEAD
         .select("TermID,start_date,end_date,Semester")  # Using correct column names
+=======
+        .select("TermID,start_date,end_date,Semester")
+>>>>>>> b4a4dff2592d7042b3d4ed8568fc50bf15d01ba9
         .eq("Semester", term)
         .single()
         .execute()
@@ -104,8 +116,13 @@ def fetch_term_budget_usage(term: str):
         return None
 
     term_id    = term_data["TermID"]
+<<<<<<< HEAD
     start_date = term_data["start_date"]  # Changed from "Start_Date" to "start_date"
     end_date   = term_data["end_date"]  
+=======
+    start_date = term_data["start_date"]
+    end_date   = term_data["end_date"]
+>>>>>>> b4a4dff2592d7042b3d4ed8568fc50bf15d01ba9
 
     # 2) Fetch budgets (with committee info) for that term
     budgets_res = (

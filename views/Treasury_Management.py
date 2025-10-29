@@ -218,7 +218,7 @@ elif page == "📤 Upload Transactions":
     # 3: Transfers         12: Overhead
     # 4: President         13: Merch
     # 5: Membership        14: Road Trip
-    # 6: Corporate         15: Technology
+    # 6: Corporate Relations | 15: Technology
     # 7: Consulting        16: Passport
     # 8: Meeting Food      17: Refunded
     # 9: Marketing         18: Formal
@@ -792,14 +792,46 @@ elif page == "💰 Manage Budgets":
         
         # Show budgets for selected term
         term_budgets = df_budgets[df_budgets["termid"] == selected_term].copy()
+        # Allowed committees for budgeting
+        allowed_committee_names = {
+            "consulting",
+            "corporate relations",
+            "marketing",
+            "meeting food",
+            "membership",
+            "merch",
+            "overhead",
+            "passport",
+            "president",
+            "professional development",
+            "treasury",
+        }
+        committees_df = df_committees.copy()
+        committees_df["_name_lower"] = committees_df["Committee_Name"].str.lower()
+        allowed_committees_df = committees_df[committees_df["_name_lower"].isin(allowed_committee_names)].copy()
+        allowed_committee_ids = allowed_committees_df["CommitteeID"].tolist()
+
         if not term_budgets.empty:
             term_budgets = term_budgets.merge(
                 df_committees[["CommitteeID", "Committee_Name"]], 
                 left_on="committeeid", right_on="CommitteeID", how="left"
             )
+            # Restrict display to allowed committees only
+            term_budgets = term_budgets[term_budgets["committeeid"].isin(allowed_committee_ids)]
             
+            # Build a complete display list of allowed committees with budgets (fill missing with 0)
+            display_budgets = (
+                allowed_committees_df[["CommitteeID", "Committee_Name"]]
+                .merge(
+                    term_budgets[["committeeid", "budget_amount"]],
+                    left_on="CommitteeID",
+                    right_on="committeeid",
+                    how="left"
+                )
+                .fillna({"budget_amount": 0.0})
+            )
             st.dataframe(
-                term_budgets[["Committee_Name", "budget_amount"]]
+                display_budgets[["Committee_Name", "budget_amount"]]
                 .rename(columns={"Committee_Name": "Committee", "budget_amount": "Budget Amount"}),
                 use_container_width=True,
                 hide_index=True
@@ -814,9 +846,9 @@ elif page == "💰 Manage Budgets":
         # Add/Update budgets
         st.subheader("Set Committee Budgets")
         
-        # Get committees
-        committees = df_committees[df_committees["Committee_Type"] == "committee"]["Committee_Name"].tolist()
-        committee_ids = df_committees[df_committees["Committee_Type"] == "committee"][["CommitteeID", "Committee_Name"]]
+        # Get committees (allowed only)
+        committees = allowed_committees_df["Committee_Name"].tolist()
+        committee_ids = allowed_committees_df[["CommitteeID", "Committee_Name"]]
         
         budget_inputs = {}
         col1, col2 = st.columns(2)
@@ -841,8 +873,8 @@ elif page == "💰 Manage Budgets":
         
         if st.button("💾 Save Budgets"):
             try:
-                # Delete existing budgets for this term
-                supabase.table("committeebudgets").delete().eq("termid", selected_term).execute()
+                # Delete existing budgets for this term (allowed committees only)
+                supabase.table("committeebudgets").delete().eq("termid", selected_term).in_("committeeid", allowed_committee_ids).execute()
                 
                 # Insert new budgets - CHANGED TO INCLUDE ALL VALUES, NOT JUST > 0
                 for committee_name, budget_amount in budget_inputs.items():

@@ -102,7 +102,10 @@ if "last_semester" not in st.session_state or st.session_state.last_semester != 
     st.session_state.last_semester = selected_semester
     # Clear all month-related session state
     for key in list(st.session_state.keys()):
-        if key.startswith("month_selector_") or key == "edited_data":
+        if (
+            key.startswith("month_selector_")
+            or key in ["edited_data", "edited_month", "transaction_editor"]
+        ):
             del st.session_state[key]
 
 # Month selector with semester-specific key
@@ -114,6 +117,9 @@ selected_month = st.selectbox(
     index=len(months) - 1  # Default to most recent month
 )
 
+# Normalize month key for session comparisons
+selected_month_str = selected_month.strftime("%Y-%m")
+
 # Get transactions for selected month using the direct selected value
 month_transactions = (
     filtered_transactions[filtered_transactions["transaction_date"].dt.to_period('M') == selected_month]
@@ -121,6 +127,8 @@ month_transactions = (
            left_on="budget_category", right_on="CommitteeID", how="left")
     .sort_values("transaction_date")
 )
+# Ensure a clean, positional index so editor rows map back correctly
+month_transactions = month_transactions.reset_index(drop=True)
 
 if not month_transactions.empty:
     # Create purpose options
@@ -139,13 +147,15 @@ if not month_transactions.empty:
     # Create committee options with ID and name combined
     committee_options = [""] + [f"{i} - {committee_mapping.get(str(i), '')}" for i in range(1, 19)]
     
-    # Initialize edited data in session state
-    if "edited_data" not in st.session_state:
+    # Initialize or refresh edited data when month changes
+    if "edited_data" not in st.session_state or st.session_state.get("edited_month") != selected_month_str:
         st.session_state.edited_data = month_transactions.copy()
         # Convert budget_category to the combined format for display
         st.session_state.edited_data['budget_category'] = st.session_state.edited_data['budget_category'].apply(
             lambda x: f"{int(x)} - {committee_mapping.get(str(int(x)), '')}" if pd.notna(x) else ""
         )
+        # Track which month the editor is showing
+        st.session_state.edited_month = selected_month_str
     
     with st.form("transaction_editor"):
         # Create an editable dataframe

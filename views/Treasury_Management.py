@@ -9,6 +9,35 @@ import numpy as np
 import re
 
 # Helper functions
+def check_duplicate_transactions(records: list, existing_transactions: pd.DataFrame) -> tuple[list, list]:
+    """
+    Check for potential duplicate transactions by comparing details and dates.
+    Returns (non_duplicates, duplicates) tuple of record lists.
+    """
+    # Convert existing transactions date to string for comparison
+    existing_transactions['date_str'] = existing_transactions['transaction_date'].dt.strftime('%Y-%m-%d')
+    
+    non_duplicates = []
+    duplicates = []
+    
+    for record in records:
+        # Check for matching details and date
+        matches = existing_transactions[
+            (existing_transactions['details'].str.strip() == record['details'].strip()) &
+            (existing_transactions['date_str'] == record['transaction_date'])
+        ]
+        
+        if matches.empty:
+            non_duplicates.append(record)
+        else:
+            # Add the record to duplicates with info about the matching transaction
+            match = matches.iloc[0]
+            record['existing_id'] = int(match['transactionid'])
+            record['existing_date'] = match['date_str']
+            duplicates.append(record)
+    
+    return non_duplicates, duplicates
+
 def show_committee_reference():
     """Display the Committee ID reference table"""
     st.markdown("""
@@ -475,33 +504,65 @@ elif page == "📤 Upload Transactions":
                                                     'budget_category': mapped_budget
                                                 })
 
-                                            # Insert in batches (prefer service-role/admin client if available to avoid RLS issues)
+                                            # Check for duplicates before inserting
                                             if records:
-                                                admin_client = None
-                                                try:
-                                                    admin_client = get_admin()
-                                                except Exception:
+                                                # Load existing transactions for duplicate check
+                                                existing_transactions = load_transactions_df()
+                                                
+                                                # Check for duplicates
+                                                non_duplicates, duplicates = check_duplicate_transactions(records, existing_transactions)
+                                                
+                                                if duplicates:
+                                                    st.warning(f"Found {len(duplicates)} potential duplicate transactions:")
+                                                    # Show duplicates in a table
+                                                    dup_df = pd.DataFrame(duplicates)
+                                                    st.dataframe(
+                                                        dup_df[['transaction_date', 'amount', 'details', 'existing_id']].rename(
+                                                            columns={'existing_id': 'Existing Transaction ID'}
+                                                        ),
+                                                        hide_index=True
+                                                    )
+                                                    
+                                                    # Ask user what to do with duplicates
+                                                    handle_dups = st.radio(
+                                                        "How would you like to handle duplicate transactions?",
+                                                        ["Skip duplicates", "Insert all anyway"],
+                                                        index=0,
+                                                        key="venmo_dups"
+                                                    )
+                                                    
+                                                    if handle_dups == "Skip duplicates":
+                                                        records = non_duplicates
+                                                        if not records:
+                                                            st.info("All transactions were duplicates. Nothing to insert.")
+                                                            proceed_with_insert = False
+                                                
+                                                if records:
                                                     admin_client = None
+                                                    try:
+                                                        admin_client = get_admin()
+                                                    except Exception:
+                                                        admin_client = None
 
-                                                client = admin_client or supabase
-                                                try:
-                                                    client.table('transactions').insert(records).execute()
+                                                    client = admin_client or supabase
+                                                    try:
+                                                        client.table('transactions').insert(records).execute()
 
-                                                    # record uploaded filename
-                                                    client.table('uploaded_files').insert({
-                                                        'file_name': filename
-                                                    }).execute()
+                                                        # record uploaded filename
+                                                        client.table('uploaded_files').insert({
+                                                            'file_name': filename
+                                                        }).execute()
 
-                                                    st.success(f"Inserted {len(records)} transactions and recorded file '{filename}'.")
-                                                    st.cache_data.clear()
-                                                except Exception as ee:
-                                                    # Provide clearer guidance for RLS errors
-                                                    msg = str(ee)
-                                                    if 'row-level security' in msg.lower() or '42501' in msg:
-                                                        st.error("Insert blocked by Row-Level Security (RLS).\n" \
-                                                                "Solutions: add a Supabase service_role key to `.streamlit/secrets.toml` under `supabase.service_key` and restart the app, or update RLS policies to allow the current client to write to `transactions`.")
-                                                    else:
-                                                        st.error(f"Failed to insert transactions: {ee}")
+                                                        st.success(f"Successfully inserted {len(records)} non-duplicate transactions and recorded file '{filename}'.")
+                                                        st.cache_data.clear()
+                                                    except Exception as ee:
+                                                        # Provide clearer guidance for RLS errors
+                                                        msg = str(ee)
+                                                        if 'row-level security' in msg.lower() or '42501' in msg:
+                                                            st.error("Insert blocked by Row-Level Security (RLS).\n" \
+                                                                    "Solutions: add a Supabase service_role key to `.streamlit/secrets.toml` under `supabase.service_key` and restart the app, or update RLS policies to allow the current client to write to `transactions`.")
+                                                        else:
+                                                            st.error(f"Failed to insert transactions: {ee}")
                                             else:
                                                 st.info("No records to insert.")
 
@@ -648,25 +709,58 @@ elif page == "📤 Upload Transactions":
                                                 })
 
                                             if records:
-                                                admin_client = None
-                                                try:
-                                                    admin_client = get_admin()
-                                                except Exception:
+                                                # Load existing transactions for duplicate check
+                                                existing_transactions = load_transactions_df()
+                                                
+                                                # Check for duplicates
+                                                non_duplicates, duplicates = check_duplicate_transactions(records, existing_transactions)
+                                                
+                                                proceed_with_insert = True
+                                                if duplicates:
+                                                    st.warning(f"Found {len(duplicates)} potential duplicate transactions:")
+                                                    # Show duplicates in a table
+                                                    dup_df = pd.DataFrame(duplicates)
+                                                    st.dataframe(
+                                                        dup_df[['transaction_date', 'amount', 'details', 'existing_id']].rename(
+                                                            columns={'existing_id': 'Existing Transaction ID'}
+                                                        ),
+                                                        hide_index=True
+                                                    )
+                                                    
+                                                    # Ask user what to do with duplicates
+                                                    handle_dups = st.radio(
+                                                        "How would you like to handle duplicate transactions?",
+                                                        ["Skip duplicates", "Insert all anyway"],
+                                                        index=0,
+                                                        key="checking_dups"
+                                                    )
+                                                    
+                                                    if handle_dups == "Skip duplicates":
+                                                        records = non_duplicates
+                                                        if not records:
+                                                            st.info("All transactions were duplicates. Nothing to insert.")
+                                                            proceed_with_insert = False
+                                                
+                                                if proceed_with_insert and records:
                                                     admin_client = None
+                                                    try:
+                                                        admin_client = get_admin()
+                                                    except Exception:
+                                                        admin_client = None
 
-                                                client = admin_client or supabase
-                                                try:
-                                                    client.table('transactions').insert(records).execute()
-                                                    client.table('uploaded_files').insert({'file_name': filename}).execute()
-                                                    st.success(f"Inserted {len(records)} transactions and recorded file '{filename}'.")
-                                                    st.cache_data.clear()
-                                                except Exception as ee:
-                                                    msg = str(ee)
-                                                    if 'row-level security' in msg.lower() or '42501' in msg:
-                                                        st.error("Insert blocked by Row-Level Security (RLS).\n" \
-                                                                "Solutions: add a Supabase service_role key to `.streamlit/secrets.toml` under `supabase.service_key` and restart the app, or update RLS policies to allow the current client to write to `transactions`.")
-                                                    else:
-                                                        st.error(f"Failed to insert transactions: {ee}")
+                                                    client = admin_client or supabase
+                                                    try:
+                                                        client.table('transactions').insert(records).execute()
+                                                        client.table('uploaded_files').insert({'file_name': filename}).execute()
+                                                        st.success(f"Successfully inserted {len(records)} non-duplicate transactions and recorded file '{filename}'.")
+                                                        st.cache_data.clear()
+                                                    except Exception as ee:
+                                                        msg = str(ee)
+                                                        if 'row-level security' in msg.lower() or '42501' in msg:
+                                                            st.error("Insert blocked by Row-Level Security (RLS).\n" \
+                                                                    "Solutions: add a Supabase service_role key to `.streamlit/secrets.toml` under `supabase.service_key` and restart the app, or update RLS policies to allow the current client to write to `transactions`.")
+                                                        else:
+                                                            st.error(f"Failed to insert transactions: {ee}")
                                             else:
                                                 st.info("No records to insert.")
 

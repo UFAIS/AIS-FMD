@@ -124,6 +124,20 @@ month_transactions = (
     .sort_values("transaction_date")
 )
 
+# Add type filter: All / Income / Expense
+type_filter = st.selectbox(
+    "Filter by Transaction Type",
+    ["All", "Income", "Expense"],
+    index=0,
+    key="transaction_type_filter"
+)
+
+# Apply type filter
+if type_filter == "Income":
+    month_transactions = month_transactions[month_transactions["amount"] > 0]
+elif type_filter == "Expense":
+    month_transactions = month_transactions[month_transactions["amount"] < 0]
+
 if not month_transactions.empty:
     # Create purpose options
     purpose_options = [
@@ -141,13 +155,15 @@ if not month_transactions.empty:
     # Create committee options with ID and name combined
     committee_options = [""] + [f"{i} - {committee_mapping.get(str(i), '')}" for i in range(1, 19)]
     
-    # Initialize edited data in session state
-    if "edited_data" not in st.session_state:
+    # Initialize or refresh edited data when month or filter changes
+    current_filter_key = f"{selected_month}-{type_filter}"
+    if "edited_data" not in st.session_state or st.session_state.get("edited_filter_key") != current_filter_key:
         st.session_state.edited_data = month_transactions.copy()
         # Convert budget_category to the combined format for display
         st.session_state.edited_data['budget_category'] = st.session_state.edited_data['budget_category'].apply(
             lambda x: f"{int(x)} - {committee_mapping.get(str(int(x)), '')}" if pd.notna(x) else ""
         )
+        st.session_state.edited_filter_key = current_filter_key
     
     with st.form("transaction_editor"):
         # Create an editable dataframe
@@ -207,7 +223,7 @@ if not month_transactions.empty:
                 failed_updates = []
                 
                 for idx, row in edited_df.iterrows():
-                    original = month_transactions.loc[idx]
+                    original = st.session_state.edited_data.loc[idx]
                     
                     # Convert budget_category to int if not empty
                     budget_cat = row["budget_category"]

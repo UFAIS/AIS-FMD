@@ -210,6 +210,43 @@ if selected_committee != "All Committees":
 summary["% Spent"].fillna(0, inplace=True)
 df_display = summary.rename(columns={"budget_amount": "Budget"})[["Committee_Name", "Budget", "Spent", "% Spent"]]
 
+# Add historical budget vs spending data
+def get_historical_budget_spending():
+    # Get all transactions with committee info
+    historical_spending = (
+        df_transactions
+        .merge(df_committees[["CommitteeID", "Committee_Name", "Committee_Type"]], 
+               left_on="budget_category", right_on="CommitteeID", how="left")
+        .query("Committee_Type == 'committee' and amount < 0")
+        .assign(
+            amount=lambda d: d["amount"].abs(),
+            Semester=lambda d: d["transaction_date"].apply(get_semester)
+        )
+        .groupby(["Semester", "Committee_Name"], as_index=False)
+        ["amount"].sum()
+        .rename(columns={"amount": "Spent"})
+    )
+    
+    # Get all budgets
+    historical_budget = (
+        df_budgets
+        .merge(df_terms[["TermID", "Semester"]], left_on="termid", right_on="TermID", how="left")
+        .merge(df_committees[["CommitteeID", "Committee_Name", "Committee_Type"]], 
+               left_on="committeeid", right_on="CommitteeID", how="left")
+        .query("Committee_Type == 'committee'")
+        .loc[:, ["Semester", "Committee_Name", "budget_amount"]]
+    )
+    
+    # Combine budget and spending
+    historical_data = (
+        historical_budget
+        .merge(historical_spending, on=["Semester", "Committee_Name"], how="outer")
+        .fillna({"Spent": 0, "budget_amount": 0})
+        .sort_values("Semester")
+    )
+    
+    return historical_data
+
 # Display table and chart
 col1, col2 = st.columns([1, 2])
 
@@ -221,6 +258,8 @@ with col1:
         use_container_width=True,
         hide_index=True
     )
+    
+    
 
 with col2:
     if not df_display.empty:
@@ -355,6 +394,149 @@ with col2:
 
 st.divider()
 
+# Financial Trends Analysis
+st.header("📈 Financial Trends")
 
+# Get historical data
+historical_data = get_historical_budget_spending()
 
-
+if not historical_data.empty:
+    if selected_committee != "All Committees":
+        # Filter for specific committee
+        historical_data = historical_data[historical_data["Committee_Name"] == selected_committee]
+        
+        # Create two-part visualization for specific committee
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=(
+                f"{selected_committee} - Budget vs Actual Spending",
+                "Spending Efficiency (% of Budget Used)"
+            ),
+            vertical_spacing=0.15
+        )
+    else:
+        # Aggregate data for all committees
+        historical_data = historical_data.groupby("Semester", as_index=False).agg({
+            "budget_amount": "sum",
+            "Spent": "sum"
+        })
+        
+        # Create single plot for all committees
+        fig = make_subplots(
+            rows=1, cols=1,
+            subplot_titles=(f"Overall Budget vs Actual Spending",)
+        )
+    
+    # Add budget vs actual spending bars
+    fig.add_trace(
+        go.Bar(
+            name="Budget",
+            x=historical_data["Semester"],
+            y=historical_data["budget_amount"],
+            marker_color='rgb(53, 138, 255)',  # Bright blue
+            hovertemplate="Budget: $%{y:,.2f}<extra></extra>"
+        ),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Bar(
+            name="Actual Spending",
+            x=historical_data["Semester"],
+            y=historical_data["Spent"],
+            marker_color='rgb(255, 140, 0)',  # Orange
+            hovertemplate="Spent: $%{y:,.2f}<extra></extra>"
+        ),
+        row=1, col=1
+    )
+    
+    if selected_committee != "All Committees":
+        # Calculate and add spending efficiency line for specific committee
+        historical_data['Efficiency'] = (historical_data['Spent'] / historical_data['budget_amount'] * 100).round(1)
+        
+        # Add efficiency scatter plot with text labels
+        fig.add_trace(
+            go.Scatter(
+                name="Spending Efficiency",
+                x=historical_data["Semester"],
+                y=historical_data["Efficiency"],
+                mode='lines+markers+text',  # Added text mode
+                line=dict(color='rgb(242,142,43)', width=3),
+                marker=dict(size=8),
+                text=[f"{x:.1f}%" for x in historical_data["Efficiency"]],  # Add percentage labels
+                textposition="top center",  # Position labels above points
+                textfont=dict(size=10),  # Adjust text size
+                hovertemplate="Efficiency: %{y:.1f}%<extra></extra>"
+            ),
+            row=2, col=1
+        )
+        
+        # Add target efficiency reference line
+        fig.add_trace(
+            go.Scatter(
+                name="Target Efficiency",
+                x=historical_data["Semester"],
+                y=[100] * len(historical_data["Semester"]),
+                mode='lines',
+                line=dict(color='rgba(169,169,169,0.5)', dash='dash'),
+                hoverinfo='skip'
+            ),
+            row=2, col=1
+        )
+        
+        # Update y-axes for both plots
+        fig.update_yaxes(title_text="Amount ($)", row=1, col=1)
+        fig.update_yaxes(title_text="% of Budget Used", row=2, col=1, 
+                        range=[0, max(120, historical_data["Efficiency"].max() * 1.1)])
+        
+        # Set height for two-plot layout
+        height = 700
+    else:
+        # Update y-axis for single plot
+        fig.update_yaxes(title_text="Amount ($)", row=1, col=1)
+        # Set height for single-plot layout
+        height = 400
+    
+    # Update layout
+    fig.update_layout(
+        height=height,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        barmode='group'
+    )
+    
+    # Add budget vs spending annotations with increased spacing
+    for i, row in historical_data.iterrows():
+        if pd.notna(row['budget_amount']) and pd.notna(row['Spent']):
+            fig.add_annotation(
+                x=row['Semester'],
+                y=max(row['budget_amount'], row['Spent']),
+                text=f"${abs(row['budget_amount'] - row['Spent']):,.0f}<br>{'under' if row['budget_amount'] > row['Spent'] else 'over'}",
+                yshift=25,  # Increased spacing from bars
+                showarrow=False,
+                font=dict(size=10),
+                row=1, col=1
+            )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Add insights for specific committee
+    if selected_committee != "All Committees" and len(historical_data) > 1:
+        latest_efficiency = historical_data.iloc[-1]["Efficiency"]
+        avg_efficiency = historical_data["Efficiency"].mean()
+        efficiency_trend = "increasing" if historical_data.iloc[-1]["Efficiency"] > historical_data.iloc[-2]["Efficiency"] else "decreasing"
+        
+        st.info(f"""
+        📊 **Financial Insights:**
+        - Latest spending efficiency: **{latest_efficiency:.1f}%** of budget used
+        - Average efficiency across periods: **{avg_efficiency:.1f}%**
+        - Spending efficiency is **{efficiency_trend}** compared to last semester
+        """)
+else:
+    st.info("No historical data available for the selected filters.")

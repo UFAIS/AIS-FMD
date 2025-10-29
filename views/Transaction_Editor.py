@@ -7,6 +7,41 @@ from components import animated_typing_title, apply_nav_title
 # Initialize UI
 apply_nav_title()
 animated_typing_title("Transaction Editor")
+
+st.markdown("""
+### 🎯 How to Edit Transactions
+
+Welcome to the Transaction Editor! This tool makes it easy to manage and update transaction details. Here's how it works: """)
+
+col = [st.columns(4)]
+with col[0][0]:
+    st.markdown("""
+    **Step 1: Select a Month**
+    - 📅 Use the month selector to find the transactions you want to edit
+    - All transactions for the selected month will be displayed in a table below
+    """)
+with col[0][1]:
+    st.markdown("""
+    **Step 2: Make Your Changes**
+    - 🔄 Update transaction details using the dropdown menus
+    - 📝 Modify committee assignments and purposes as needed
+    - ✨ Changes are highlighted in real-time for easy tracking
+    """)
+with col[0][2]:
+    st.markdown("""
+    **Step 3: Save Your Updates**
+    - ✅ Review your changes in the preview table
+    - 💾 Click "Save Changes" to update the database
+    - 🔒 All changes are validated before saving
+    """)
+with col[0][3]:
+    st.markdown("""
+    **Pro Tips:**
+    - Filter by committee to focus on specific transactions
+    - Use the search bar to find specific entries
+    - Green highlights show which fields you've modified
+    """)
+
 st.divider()
 
 # Load data
@@ -59,22 +94,29 @@ if not months:
     st.info("No transactions found for the selected semester.")
     st.stop()
 
-# Initialize session state for month selection
-if "selected_month" not in st.session_state:
-    st.session_state.selected_month = months[-1] if months else None
+# Generate a unique key for this semester's month selector
+month_selector_key = f"month_selector_{selected_semester}"
 
-# Month selector with session state
-st.session_state.selected_month = st.selectbox(
+# Clear all month-related session state when semester changes
+if "last_semester" not in st.session_state or st.session_state.last_semester != selected_semester:
+    st.session_state.last_semester = selected_semester
+    # Clear all month-related session state
+    for key in list(st.session_state.keys()):
+        if key.startswith("month_selector_") or key == "edited_data":
+            del st.session_state[key]
+
+# Month selector with semester-specific key
+selected_month = st.selectbox(
     "Select Month to Edit",
     months,
     format_func=lambda x: x.strftime("%B %Y"),
-    key="transaction_month_selector",
-    index=months.index(st.session_state.selected_month) if st.session_state.selected_month in months else 0
+    key=month_selector_key,
+    index=len(months) - 1  # Default to most recent month
 )
 
-# Get transactions for selected month
+# Get transactions for selected month using the direct selected value
 month_transactions = (
-    filtered_transactions[filtered_transactions["transaction_date"].dt.to_period('M') == st.session_state.selected_month]
+    filtered_transactions[filtered_transactions["transaction_date"].dt.to_period('M') == selected_month]
     .merge(df_committees[["CommitteeID", "Committee_Name"]], 
            left_on="budget_category", right_on="CommitteeID", how="left")
     .sort_values("transaction_date")

@@ -13,11 +13,18 @@ st.divider()
 
 st.markdown("""
 Welcome to the AIS Treasury Dashboard!  
-This tool provides a secure and collaborative view into our organization’s finances.
+This tool provides a secure and collaborative view into our organization's finances.
 
-### 🔍 What You Can Do
-- **Home:** You're here!
-- **Cumulative Dashboard:** Get an overview of all budgets and spending.
+### 🔍 Key Features
+- **Financial Dashboard:** Get comprehensive insights into budgets, spending patterns, and financial trends
+- **Transaction Editor:** Easily manage and update transaction details with an intuitive interface
+- **Treasury Management:** Access administrative tools for uploading statements and managing terms
+
+### 📊 What You Can Do
+- View detailed financial analytics and budget utilization
+- Update transaction purposes and committee assignments
+- Upload and process financial statements
+- Manage academic terms and committee budgets
 - **Committees:** Dive into each committee’s financial activity.
 - **Non-Committee:** Track general funds, transfers, and other uncategorized items.
 

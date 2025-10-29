@@ -102,6 +102,7 @@ def main_app(user_email: str):
     PAGE_DEFS = [
         {"page": "views/Homepage.py",                "title": "Homepage",                                    "icon": ":material/home:",         "default": True},
         {"page": "views/Financial_Dashboard.py",     "title": "Financial Dashboard",                          "icon": ":material/analytics:"},
+        {"page": "views/Transaction_Editor.py",      "title": "Transaction Editor",                           "icon": ":material/edit:"},
         {"page": "views/Treasury_Management.py",     "title": "Treasury Management",                           "icon": ":material/account_balance:"},
     ]
 

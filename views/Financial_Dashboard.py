@@ -3,7 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from utils import load_committees_df, load_committee_budgets_df, load_transactions_df, load_terms_df
+import time
+from utils import load_committees_df, load_committee_budgets_df, load_transactions_df, load_terms_df, get_supabase, get_admin
 from components import animated_typing_title, apply_nav_title
 
 # Initialize UI
@@ -21,7 +22,6 @@ Get a **clear and engaging view** of UF AIS financial data across all committees
 - 💰 Analyze **spending patterns**, **budget utilization**, and **financial trends**  
 - 📈 See how **metrics change** compared to the previous semester  
 - ⏳ Track financial performance **over time** with ease  
-
 """)
 
 st.divider()
@@ -355,158 +355,6 @@ with col2:
 
 st.divider()
 
-# Member Count Analysis
-st.header("👥 Membership Trends")
 
-# Calculate member count for each semester based on dues transactions
-def calculate_member_count_by_semester():
-    """Calculate member count for each semester based on dues transactions"""
-    # Filter for dues transactions (budget_category = 1 and purpose = "Dues")
-    dues_transactions = df_transactions[
-        (df_transactions["budget_category"] == 1) & 
-        (df_transactions["purpose"].str.contains("Dues", case=False, na=False))
-    ].copy()
-    
-    # Add semester information
-    dues_transactions["Semester"] = dues_transactions["transaction_date"].apply(get_semester)
-    
-    # Group by semester and count unique transactions (each transaction = 1 member)
-    member_counts = (
-        dues_transactions
-        .dropna(subset=["Semester"])
-        .groupby("Semester", as_index=False)
-        .size()
-        .rename(columns={"size": "Member_Count"})
-    )
-    
-    # Sort by semester chronologically
-    member_counts = member_counts.merge(
-        df_terms[["Semester", "start_date"]], 
-        on="Semester", 
-        how="left"
-    ).sort_values("start_date")
-    
-    return member_counts[["Semester", "Member_Count"]]
-
-# Get member count data
-member_data = calculate_member_count_by_semester()
-
-if not member_data.empty:
-    # Display member count metrics
-    col1, col2, col3 = st.columns(3)
-    
-    current_members = int(member_data["Member_Count"].iloc[-1]) if len(member_data) > 0 else 0
-    previous_members = int(member_data["Member_Count"].iloc[-2]) if len(member_data) > 1 else 0
-    member_delta = int(current_members - previous_members)
-    
-    with col1:
-        st.metric(
-            label="Current Semester Members",
-            value=f"{current_members:,}",
-            delta=member_delta if len(member_data) > 1 else None
-        )
-    
-    with col2:
-        total_members_ever = member_data["Member_Count"].sum()
-        st.metric(
-            label="Total Members (All Time)",
-            value=f"{total_members_ever:,}"
-        )
-    
-    with col3:
-        avg_members_per_semester = member_data["Member_Count"].mean()
-        st.metric(
-            label="Average Members/Semester",
-            value=f"{avg_members_per_semester:.0f}"
-        )
-    
-    # Create member count trend chart
-    st.subheader("Membership Growth Over Time")
-    
-    fig_members = px.line(
-        member_data,
-        x="Semester",
-        y="Member_Count",
-        markers=True,
-        title="Member Count by Semester",
-        labels={"Member_Count": "Number of Members", "Semester": "Semester"},
-        line_shape="linear"
-    )
-    
-    # Add data points and improve styling
-    fig_members.update_traces(
-        line=dict(width=3, color="#1f77b4"),
-        marker=dict(size=8, color="#1f77b4"),
-        hovertemplate="<b>%{x}</b><br>Members: %{y}<extra></extra>"
-    )
-    
-    fig_members.update_layout(
-        height=400,
-        xaxis=dict(
-            tickangle=45,
-            tickmode='array',
-            ticktext=member_data["Semester"].tolist(),
-            tickvals=member_data["Semester"].tolist()
-        ),
-        yaxis=dict(
-            rangemode='tozero',
-            tickformat=',d'
-        ),
-        hovermode='x unified',
-        showlegend=False
-    )
-    
-    st.plotly_chart(fig_members, use_container_width=True)
-    
-    # Display member count table
-    st.subheader("Detailed Member Counts")
-    st.dataframe(
-        member_data.style.format({"Member_Count": "{:,}"}),
-        use_container_width=True,
-        hide_index=True
-    )
-    
-else:
-    st.info("No dues transactions found to calculate member counts.")
-
-st.divider()
-
-# Recent Transactions
-st.header("📋 Recent Transactions")
-
-# Apply committee filter to recent transactions
-if selected_committee != "All Committees":
-    committee_id = df_committees[df_committees["Committee_Name"] == selected_committee]["CommitteeID"].iloc[0]
-    filtered_transactions_for_recent = filtered_transactions[filtered_transactions["budget_category"] == committee_id]
-else:
-    filtered_transactions_for_recent = filtered_transactions
-
-# Show recent transactions
-recent_transactions = (
-    filtered_transactions_for_recent
-    .merge(df_committees[["CommitteeID", "Committee_Name"]], 
-           left_on="budget_category", right_on="CommitteeID", how="left")
-    .sort_values("transaction_date", ascending=False)
-    .head(100)
-    [["transaction_date", "amount", "details", "purpose"]]
-    .rename(columns={
-        "transaction_date": "Date",
-        "amount": "Amount",
-        "details": "Details",
-        "purpose": "Purpose",
-    })
-)
-
-if not recent_transactions.empty:
-    st.dataframe(
-        recent_transactions.style.format({
-            "Amount": "${:,.2f}",
-            "Date": lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else ""
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-else:
-    st.info("No transactions found for the selected filters.")
 
 

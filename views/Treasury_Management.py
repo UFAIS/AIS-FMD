@@ -3,25 +3,26 @@ import pandas as pd
 import plotly.express as px
 from utils import get_supabase, get_admin, load_committees_df, load_committee_budgets_df, load_transactions_df, load_terms_df
 from components import animated_typing_title, apply_nav_title
-import io
-from datetime import datetime, date
-import numpy as np
+from datetime import datetime
 import re
 
-# Helper functions
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
 def check_duplicate_transactions(records: list, existing_transactions: pd.DataFrame) -> tuple[list, list]:
-    """
-    Check for potential duplicate transactions by comparing details and dates.
-    Returns (non_duplicates, duplicates) tuple of record lists.
-    """
-    # Convert existing transactions date to string for comparison
-    existing_transactions['date_str'] = existing_transactions['transaction_date'].dt.strftime('%Y-%m-%d')
+    """Check for duplicates by comparing details and dates."""
+    # Ensure transaction_date is datetime before converting to string
+    if not existing_transactions.empty:
+        existing_transactions = existing_transactions.copy()
+        existing_transactions['transaction_date'] = pd.to_datetime(existing_transactions['transaction_date'], errors='coerce')
+        existing_transactions['date_str'] = existing_transactions['transaction_date'].dt.strftime('%Y-%m-%d')
+    else:
+        existing_transactions['date_str'] = []
     
-    non_duplicates = []
-    duplicates = []
+    non_duplicates, duplicates = [], []
     
     for record in records:
-        # Check for matching details and date
         matches = existing_transactions[
             (existing_transactions['details'].str.strip() == record['details'].strip()) &
             (existing_transactions['date_str'] == record['transaction_date'])
@@ -30,16 +31,14 @@ def check_duplicate_transactions(records: list, existing_transactions: pd.DataFr
         if matches.empty:
             non_duplicates.append(record)
         else:
-            # Add the record to duplicates with info about the matching transaction
             match = matches.iloc[0]
             record['existing_id'] = int(match['transactionid'])
-            record['existing_date'] = match['date_str']
             duplicates.append(record)
     
     return non_duplicates, duplicates
 
 def show_committee_reference():
-    """Display the Committee ID reference table"""
+    """Display Committee ID reference table."""
     st.markdown("""
     #### 🔑 Committee ID Reference
     | ID | Committee | ID | Committee |
@@ -55,88 +54,162 @@ def show_committee_reference():
     | 9 | Marketing | 18 | Formal |
     """)
 
-# Helper functions
-def create_transaction_editor(df_proc: pd.DataFrame, key_prefix: str = "venmo"):
-    """Create an editable transaction preview form."""
-    # Create purpose options
-    purpose_options = [
-        "Dues", "Food & Drink", "Tax", "Road Trip", "Social Events",
-        "Sponsorship / Donation", "Travel Reimbursement", "Transfers",
-        "Merch", "Professional Events", "Misc.", "ISOM Passport",
-        "GBM Catering", "Formal", "Refunded", "Meeting Food",
-        "Technology", "Marketing", "Professional Development"
-    ]
-    purpose_options.sort()
+def classify_purpose(text: str) -> str | None:
+    """Classify purpose from transaction details."""
+    if not isinstance(text, str) or not text:
+        return None
+    s = text.lower().strip()
+    dues_keywords = ["dues", "due", "membership fee", "membership payment", "membership"]
+    return "Dues" if any(keyword in s for keyword in dues_keywords) else None
 
-    # Show Committee ID Reference
-    st.markdown("""
-    #### 🔑 Committee ID Reference
-    | ID | Committee | ID | Committee |
-    |----|-----------|-----|-----------|
-    | 1 | Dues | 10 | Professional Development |
-    | 2 | Treasury | 11 | Sponsorship / Donation |
-    | 3 | Transfers | 12 | Overhead |
-    | 4 | President | 13 | Merch |
-    | 5 | Membership | 14 | Road Trip |
-    | 6 | Corporate Relations | 15 | Technology |
-    | 7 | Consulting | 16 | Passport |
-    | 8 | Meeting Food | 17 | Refunded |
-    | 9 | Marketing | 18 | Formal |
-    """)
+def map_purpose_to_budget_id(purpose: str) -> int | None:
+    """Map purpose to committee ID. Only Dues (1) is auto-mapped."""
+    PURPOSE_MAP = {"Dues": 1}
+    if not purpose or pd.isna(purpose):
+        return None
+    return PURPOSE_MAP.get(str(purpose).strip())
+
+def numeric_amount(x):
+    """Parse numeric amount from various formats."""
+    try:
+        if pd.isna(x):
+            return 0.0
+        s = str(x).replace('\u2032', '').replace('\u2019', '').replace('\xa0', ' ').replace('$', '')
+        s = re.sub(r'\s+', ' ', s).strip()
+        m = re.search(r'([+-]?)\s*([0-9]{1,3}(?:[,\d]*)(?:\.\d+)?)', s)
+        if not m:
+            return 0.0
+        return float(m.group(1) + m.group(2).replace(',', ''))
+    except:
+        return 0.0
+
+def clean_proc_df(df_proc: pd.DataFrame) -> pd.DataFrame:
+    """Clean processed dataframe by removing footer/empty rows."""
+    df = df_proc.copy()
+    df['amount'] = df['amount'].apply(lambda x: float(x) if pd.notna(x) else 0.0)
+    df['details'] = df.get('details', '').fillna('').astype(str).str.strip()
     
-    # Create display dataframe
-    display_df = df_proc.copy()
-    display_df["transactiondate"] = display_df["transactiondate"].apply(
-        lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else ""
-    )
-    display_df["amount"] = display_df["amount"].apply(
-        lambda x: f"${x:,.2f}" if pd.notna(x) else ""
-    )
+    no_date = df['transactiondate'].isna()
+    details_empty = df['details'].str.replace(r'[\|\-\s]+', '', regex=True) == ''
+    mask_footer = no_date & details_empty
+    mask_zero_blank = no_date & (df['amount'] == 0) & (df['details'].str.strip() == '')
     
-    with st.form(f"{key_prefix}_editor_form"):
-        edited_df = st.data_editor(
-            display_df,
-            column_config={
-                "transactiondate": st.column_config.TextColumn(
-                    "Date",
-                    disabled=True,
-                ),
-                "amount": st.column_config.TextColumn(
-                    "Amount",
-                    disabled=True,
-                ),
-                "details": st.column_config.TextColumn(
-                    "Details",
-                    disabled=True,
-                ),
-                "purpose": st.column_config.SelectboxColumn(
-                    "Purpose",
-                    options=[""] + purpose_options,
-                    required=False
-                ),
-                "budget": st.column_config.SelectboxColumn(
-                    "Committee ID",
-                    options=[""] + [str(i) for i in range(1, 19)],
-                    required=False,
-                    help="Select the committee ID (see reference above)",
-                )
-            },
-            disabled=False,
-            hide_index=True,
-            key=f"{key_prefix}_editor"
-        )
+    return df[~(mask_footer | mask_zero_blank)].reset_index(drop=True)
+
+def prepare_transaction_records(df_proc: pd.DataFrame, df_committees: pd.DataFrame) -> list:
+    """Convert processed dataframe to transaction records with proper budget mapping."""
+    records = []
+    for _, r in df_proc.iterrows():
+        # Auto-map Dues purpose to budget ID 1
+        mapped_budget = map_purpose_to_budget_id(r.get('purpose'))
         
-        submitted = st.form_submit_button("Process and Insert Transactions")
-        return edited_df, submitted
+        records.append({
+            'transaction_date': r['transactiondate'].strftime('%Y-%m-%d') if pd.notna(r['transactiondate']) else None,
+            'amount': float(r['amount']) if pd.notna(r['amount']) else 0.0,
+            'details': str(r['details']) if pd.notna(r['details']) else '',
+            'purpose': r['purpose'] if pd.notna(r['purpose']) else None,
+            'account': r['account'],
+            'budget_category': mapped_budget
+        })
+    
+    return records
 
-# Initialize UI
-apply_nav_title()
-animated_typing_title("Treasury Management Portal")
-st.divider()
+def insert_transactions_with_duplicate_check(records: list, filename: str, supabase, key_prefix: str):
+    """Insert transactions after checking for duplicates."""
+    if not records:
+        st.info("No records to insert.")
+        return
+    
+    existing_transactions = load_transactions_df()
+    non_duplicates, duplicates = check_duplicate_transactions(records, existing_transactions)
+    
+    if duplicates:
+        st.warning(f"⚠️ Found {len(duplicates)} duplicate transactions that will be skipped:")
+        dup_df = pd.DataFrame(duplicates)
+        st.dataframe(
+            dup_df[['transaction_date', 'amount', 'details', 'existing_id']].rename(
+                columns={'existing_id': 'Existing Transaction ID'}
+            ),
+            hide_index=True
+        )
+        records = non_duplicates
+        
+        if not records:
+            st.info("All transactions were duplicates. Nothing to insert.")
+            return
+    
+    # Show new rows that will be uploaded
+    st.success(f"✅ Ready to upload {len(records)} new transactions:")
+    new_df = pd.DataFrame(records)
+    # Format for display
+    display_new_df = new_df.copy()
+    display_new_df['amount'] = display_new_df['amount'].apply(lambda x: f"${x:,.2f}")
+    
+    # Load committees to map budget_category IDs to "ID - Name" format
+    df_committees = load_committees_df()
+    committee_map = {int(row['CommitteeID']): f"{int(row['CommitteeID'])} - {row['Committee_Name']}" 
+                     for _, row in df_committees.iterrows()}
+    
+    # Map budget_category to readable format (e.g., "1 - Dues")
+    display_new_df['budget'] = display_new_df['budget_category'].apply(
+        lambda x: committee_map.get(int(x), '') if pd.notna(x) else ''
+    )
+    
+    st.dataframe(
+        display_new_df[['transaction_date', 'amount', 'details', 'budget', 'purpose', 'account']].rename(
+            columns={
+                'transaction_date': 'Date',
+                'amount': 'Amount',
+                'details': 'Details',
+                'budget': 'Budget',
+                'purpose': 'Purpose',
+                'account': 'Account'
+            }
+        ),
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Confirmation button - use regular button since this function is called outside form context
+    if st.button(f"🔒 Confirm Upload {len(records)} Transactions", key=f"{key_prefix}_confirm_upload"):
+        try:
+            admin_client = None
+            try:
+                admin_client = get_admin()
+            except:
+                pass
+            
+            client = admin_client or supabase
+            client.table('transactions').insert(records).execute()
+            client.table('uploaded_files').insert({'file_name': filename}).execute()
+            
+            # Clear the ready_to_upload flag immediately after successful insert
+            st.session_state[f'{key_prefix}_ready_to_upload'] = False
+            if f'{key_prefix}_records' in st.session_state:
+                del st.session_state[f'{key_prefix}_records']
+            if f'{key_prefix}_filename' in st.session_state:
+                del st.session_state[f'{key_prefix}_filename']
+            
+            st.success(f"✅ Successfully uploaded {len(records)} transactions!")
+            if duplicates:
+                st.info(f"Skipped {len(duplicates)} duplicate transactions.")
+            
+            st.cache_data.clear()
+            st.balloons()
+            st.rerun()
+        except Exception as e:
+            msg = str(e)
+            if 'row-level security' in msg.lower() or '42501' in msg:
+                st.error("❌ Insert blocked by Row-Level Security. Add service_role key to secrets or update RLS policies.")
+            else:
+                st.error(f"❌ Failed to insert: {e}")
 
-# Password protection
+# ============================================================================
+# AUTHENTICATION
+# ============================================================================
+
 def check_treasury_password():
-    """Check if user has entered correct treasury password"""
+    """Check treasury password authentication."""
     if "treasury_authenticated" not in st.session_state:
         st.session_state.treasury_authenticated = False
     
@@ -145,7 +218,6 @@ def check_treasury_password():
         password = st.text_input("Enter Treasury Password", type="password")
         
         if st.button("Access Treasury Portal"):
-            # Get password from secrets
             treasury_password = st.secrets.get("treasury", {}).get("password", "default_password")
             
             if password == treasury_password:
@@ -153,627 +225,407 @@ def check_treasury_password():
                 st.success("✅ Access granted!")
                 st.rerun()
             else:
-                st.error("❌ Incorrect password. Access denied.")
+                st.error("❌ Incorrect password.")
                 return False
     
     return st.session_state.treasury_authenticated
 
-# Check authentication first
+# ============================================================================
+# MAIN UI
+# ============================================================================
+
+apply_nav_title()
+animated_typing_title("Treasury Management Portal")
+st.divider()
+
 if not check_treasury_password():
     st.stop()
 
-# Treasury portal content
 st.success("🎯 Welcome to the Treasury Management Portal")
 
-# Initialize Supabase client
+# Initialize
 supabase = get_supabase()
 
-# Load data
 @st.cache_data
 def load_treasury_data():
-    df_committees = load_committees_df()
-    df_budgets = load_committee_budgets_df()
-    df_transactions = load_transactions_df()
-    df_terms = load_terms_df()
-    return df_committees, df_budgets, df_transactions, df_terms
+    return (load_committees_df(), load_committee_budgets_df(), 
+            load_transactions_df(), load_terms_df())
 
 df_committees, df_budgets, df_transactions, df_terms = load_treasury_data()
 
-# Sidebar navigation
-st.sidebar.header("🏛️ Treasury Tools")
+# Sidebar
+st.sidebar.header("🛠️ Treasury Tools")
 page = st.sidebar.selectbox(
     "Select Tool",
-    ["📊 Data Overview", "📤 Upload Transactions", "📅 Manage Terms", "💰 Manage Budgets", "🔧 Database Tools"]
+    ["📊 Data Overview", "📤 Upload Transactions", "📅 Manage Terms", 
+     "💰 Manage Budgets", "🔧 Database Tools"]
 )
+
+# ============================================================================
+# PAGE: DATA OVERVIEW
+# ============================================================================
 
 if page == "📊 Data Overview":
     st.header("📊 Treasury Data Overview")
     
     col1, col2, col3 = st.columns(3)
-    
     with col1:
         st.metric("Total Transactions", f"{len(df_transactions):,}")
-    
     with col2:
         total_income = df_transactions[df_transactions["amount"] > 0]["amount"].sum()
         st.metric("Total Income", f"${total_income:,.2f}")
-    
     with col3:
         total_expenses = abs(df_transactions[df_transactions["amount"] < 0]["amount"].sum())
         st.metric("Total Expenses", f"${total_expenses:,.2f}")
     
     st.divider()
-    
-    # Recent activity
     st.subheader("Recent Activity")
     recent_txns = df_transactions.sort_values("transaction_date", ascending=False).head(10)
     if not recent_txns.empty:
         st.dataframe(
             recent_txns[["transaction_date", "amount", "details", "purpose"]]
-            .rename(columns={
-                "transaction_date": "Date",
-                "amount": "Amount",
-                "details": "Details",
-                "purpose": "Purpose"
-            })
+            .rename(columns={"transaction_date": "Date", "amount": "Amount", 
+                           "details": "Details", "purpose": "Purpose"})
             .style.format({"Amount": "${:,.2f}"}),
             use_container_width=True,
             hide_index=True
         )
-    else:
-        st.info("No recent transactions found.")
+
+# ============================================================================
+# PAGE: UPLOAD TRANSACTIONS
+# ============================================================================
 
 elif page == "📤 Upload Transactions":
     st.header("📤 Upload Transaction Data")
-    st.info("Upload Venmo or Checking statements only. Filenames should include `VenmoStatement_` for Venmo or `checking` for Wells/Checking exports.")
-
-    tabs = st.tabs(["Venmo", "Checking"])
-
-    def classify_purpose(text: str) -> str | None:
-        """Simple classifier that only detects dues-related transactions.
-        All other transactions will have NULL purpose and budget category."""
-        if not isinstance(text, str) or not text:
-            return None
-        
-        s = str(text).lower().strip()
-        if "dues" in s or "membership fee" in s or "membership payment" in s:
-            return "Dues"
-            
-        return None
-
-    # Committee ID reference:
-    # 1: Dues               10: Professional Development
-    # 2: Treasury          11: Sponsorship / Donation
-    # 3: Transfers         12: Overhead
-    # 4: President         13: Merch
-    # 5: Membership        14: Road Trip
-    # 6: Corporate Relations | 15: Technology
-    # 7: Consulting        16: Passport
-    # 8: Meeting Food      17: Refunded
-    # 9: Marketing         18: Formal
+    st.info("Upload Venmo or Checking statements. Filenames should include 'VenmoStatement_' or 'checking'.")
     
-    # Only map Dues automatically, all other mappings will be done manually
-    PURPOSE_TO_COMMITTEEID = {
-        "Dues": 1
-    }
-
-    def map_purpose_to_budget_id(purpose: str) -> int | None:
-        """Map a classified purpose string to a CommitteeID when unambiguous.
-
-        Returns None when mapping is not confident.
-        """
-        if not purpose or pd.isna(purpose):
-            return None
-        p = str(purpose).strip()
-        # exact key
-        if p in PURPOSE_TO_COMMITTEEID:
-            return PURPOSE_TO_COMMITTEEID[p]
-        # case-insensitive containment
-        lp = p.lower()
-        for key, cid in PURPOSE_TO_COMMITTEEID.items():
-            if key.lower() == lp or key.lower() in lp or lp in key.lower():
-                return cid
-        return None
-
-    def numeric_amount(x):
-        try:
-            if pd.isna(x):
-                return 0.0
-            s_orig = str(x)
-            # normalize problematic unicode and whitespace
-            s = s_orig.replace('\u2032', '').replace('\u2019', '').replace('\xa0', ' ')
-            s = s.replace('$', '')
-            # collapse whitespace
-            s = re.sub(r'\s+', ' ', s).strip()
-
-            # Find first numeric token with optional sign (handles '+ 46.00', '+\n46.00', etc.)
-            m = re.search(r'([+-]?)\s*([0-9]{1,3}(?:[,\d]*)(?:\.\d+)?)', s)
-            if not m:
-                return 0.0
-            sign = m.group(1) or ''
-            num = m.group(2).replace(',', '')
-            return float(sign + num)
-        except:
-            return 0.0
-
-    def clean_proc_df(df_proc: pd.DataFrame) -> pd.DataFrame:
-        """Coerce types, trim details, and drop footer/empty rows often present in exported statements."""
-        df = df_proc.copy()
-        # Ensure amount is float
-        try:
-            df['amount'] = df['amount'].astype(float)
-        except Exception:
-            df['amount'] = df['amount'].apply(lambda x: float(x) if pd.notna(x) else 0.0)
-
-        # Normalize details
-        df['details'] = df.get('details', '').fillna('').astype(str).str.strip()
-
-        # Remove rows that look like footer/noise: missing date and empty details (or details only separators)
-        no_date = df['transactiondate'].isna()
-        details_empty = df['details'].str.replace(r'[\|\-\s]+', '', regex=True) == ''
-        mask_footer = no_date & details_empty
-
-        # Also drop rows where date missing and amount is zero and details blank
-        mask_zero_blank = no_date & (df['amount'] == 0) & (df['details'].str.strip() == '')
-
-        df = df[~(mask_footer | mask_zero_blank)].reset_index(drop=True)
-        return df
-
-    # Venmo tab
-    with tabs[0]:
-        uploaded_file = st.file_uploader("Upload Venmo statement (Excel/CSV)", type=["xlsx", "xls", "csv"], key="venmo_upload")
-        if uploaded_file is not None:
-            filename = uploaded_file.name
-            # validate filename
-            if 'venmostatement' not in filename.lower():
-                st.error("Filename does not look like a Venmo statement. It should include 'VenmoStatement_'.")
+    show_committee_reference()
+    
+    # Initialize active tab in session state if not present
+    if 'active_upload_tab' not in st.session_state:
+        st.session_state.active_upload_tab = 0
+    
+    # Create tabs with session state to maintain active tab
+    tab_venmo, tab_checking = st.tabs(["Venmo", "Checking"])
+    
+    # ========== VENMO TAB ==========
+    with tab_venmo:
+        venmo_uploaded_file = st.file_uploader("Upload Venmo statement (Excel/CSV)", 
+                                        type=["xlsx", "xls", "csv"], key="venmo_upload")
+        if venmo_uploaded_file:
+            venmo_filename = venmo_uploaded_file.name
+            if 'venmostatement' not in venmo_filename.lower():
+                st.error("Filename should include 'VenmoStatement_'.")
             else:
-                # check for duplicates
-                existing = supabase.table("uploaded_files").select("*").eq("file_name", filename).execute()
+                existing = supabase.table("uploaded_files").select("*").eq("file_name", venmo_filename).execute()
                 if existing.data:
-                    st.warning("This file has already been uploaded. Aborting to avoid duplicates.")
+                    st.warning("File already uploaded.")
                 else:
                     try:
-                        if filename.lower().endswith('.csv'):
-                            df_raw = pd.read_csv(uploaded_file)
-                        else:
-                            df_raw = pd.read_excel(uploaded_file)
-
-                        # Venmo columns: Date, Note, Amount (total) etc.
-                        # Normalize column names (handle non-breaking spaces and case)
+                        df_raw = pd.read_csv(venmo_uploaded_file) if venmo_filename.lower().endswith('.csv') else pd.read_excel(venmo_uploaded_file)
+                        
+                        # Find columns
                         df_cols = {c.lower().strip().replace('\xa0', ' '): c for c in df_raw.columns}
-                        # Prefer 'date' or 'transaction id' mapping
                         date_col = next((c for k, c in df_cols.items() if 'date' in k), None)
                         note_col = next((c for k, c in df_cols.items() if 'note' in k), None)
-                        # Prefer an amount column containing both 'amount' and 'total' (handles variations like 'Amount (total)')
                         amount_col = next((c for k, c in df_cols.items() if 'amount' in k and 'total' in k), None)
-                        # Fallbacks: amount (net), exact 'amount', or any column that contains 'amount'
-                        if amount_col is None:
-                            amount_col = next((c for k, c in df_cols.items() if 'amount (net)' in k), None)
-                        if amount_col is None:
-                            amount_col = next((c for k, c in df_cols.items() if k == 'amount'), None)
-                        if amount_col is None:
+                        if not amount_col:
                             amount_col = next((c for k, c in df_cols.items() if 'amount' in k), None)
-
-                        if date_col is None or amount_col is None:
-                            st.error("Could not find required columns (date, amount) in Venmo file.")
+                        
+                        if not date_col or not amount_col:
+                            st.error("Missing required columns (date, amount).")
                         else:
-                            df_proc = pd.DataFrame()
-                            df_proc['transactiondate'] = pd.to_datetime(df_raw[date_col], errors='coerce').dt.date
-                            df_proc['amount'] = df_raw[amount_col].apply(numeric_amount)
-                            # details: combine note, from, to if available
+                            # Find additional columns for robust duplicate checking
+                            transaction_id_col = next((c for k, c in df_cols.items() if 'transaction' in k and 'id' in k), None)
+                            from_col = next((c for k, c in df_cols.items() if k == 'from'), None)
+                            to_col = next((c for k, c in df_cols.items() if k == 'to'), None)
+                            
+                            # Build robust details column from Transaction ID, Note, From, To
                             details_parts = []
+                            if transaction_id_col:
+                                details_parts.append(df_raw[transaction_id_col].fillna('').astype(str))
                             if note_col:
                                 details_parts.append(df_raw[note_col].fillna('').astype(str))
-                            # try columns 'from' 'to' etc.
-                            for k in ['from', 'to', 'details']:
-                                col = next((c for key, c in df_cols.items() if key == k), None)
-                                if col:
-                                    details_parts.append(df_raw[col].fillna('').astype(str))
+                            if from_col:
+                                details_parts.append(df_raw[from_col].fillna('').astype(str))
+                            if to_col:
+                                details_parts.append(df_raw[to_col].fillna('').astype(str))
+                            
+                            # Combine all parts with separator
                             if details_parts:
-                                df_proc['details'] = details_parts[0]
+                                combined_details = details_parts[0]
                                 for part in details_parts[1:]:
-                                    df_proc['details'] = df_proc['details'] + ' | ' + part
+                                    combined_details = combined_details + ' | ' + part
                             else:
-                                df_proc['details'] = ''
+                                combined_details = ''
+                            
+                            df_proc = pd.DataFrame({
+                                'transactiondate': pd.to_datetime(df_raw[date_col], errors='coerce').dt.date,
+                                'amount': df_raw[amount_col].apply(numeric_amount),
+                                'details': combined_details,
+                                'budget': '',
+                                'account': 'Venmo'
+                            })
 
-                            # budget left blank
-                            df_proc['budget'] = ''
-                            # purpose: classify from details
+                            # Filter out footer rows (like "Account Statement - (@UFAIS)")
+                            df_proc = df_proc[
+                                ~df_proc['details'].str.lower().str.contains('account statement', na=False, regex=False)
+                            ].reset_index(drop=True)
+
+                            # Auto-classify purpose and budget
                             df_proc['purpose'] = df_proc['details'].apply(classify_purpose)
-                            # account: mark as 'venmo'
-                            df_proc['account'] = 'Venmo'
-
-                            # Debug: show which raw column was used for amount
-                            st.markdown(f"**Detected amount column:** `{amount_col}`")
-                            try:
-                                sample_vals = df_raw[amount_col].head(5).tolist()
-                                st.markdown(f"**Sample raw values:** {sample_vals}")
-                            except Exception:
-                                pass
-
-                            # Clean the proc dataframe (coerce types, drop noise rows)
                             df_proc = clean_proc_df(df_proc)
-
-                            # Suggest budget_category based on purpose for preview
-                            try:
-                                df_proc['budget_suggested'] = df_proc['purpose'].apply(map_purpose_to_budget_id)
-                                # enforce Food & Drink -> 8 if purpose indicates GBM catering
-                                df_proc.loc[df_proc['purpose'] == 'Food & Drink', 'budget_suggested'] = df_proc.loc[df_proc['purpose'] == 'Food & Drink', 'budget_suggested'].fillna(8)
-                            except Exception:
-                                df_proc['budget_suggested'] = None
-
+                            
+                            # Auto-fill budget for Dues - convert to labeled format
+                            df_proc['budget'] = df_proc['purpose'].apply(lambda p: '1 - Dues' if p == 'Dues' else '')
+                            
                             st.subheader("Preview and Edit")
                             
-                            # Create purpose options
-                            purpose_options = [
+                            # Display with formatted values
+                            display_df = df_proc.copy()
+                            display_df["transactiondate"] = display_df["transactiondate"].apply(
+                                lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else ""
+                            )
+                            display_df["amount"] = display_df["amount"].apply(
+                                lambda x: f"${x:,.2f}" if pd.notna(x) else ""
+                            )
+                            
+                            purpose_options = sorted([
                                 "Dues", "Food & Drink", "Tax", "Road Trip", "Social Events",
                                 "Sponsorship / Donation", "Travel Reimbursement", "Transfers",
                                 "Merch", "Professional Events", "Misc.", "ISOM Passport",
                                 "GBM Catering", "Formal", "Refunded", "Meeting Food",
                                 "Technology", "Marketing", "Professional Development"
-                            ]
-                            purpose_options.sort()
+                            ])
                             
-                            # Create committee mapping for display
-                            committee_options = [""] + [str(i) for i in range(1, 19)]
-                            
-                            # Convert dates to string for display
-                            display_df = df_proc.copy()
-                            display_df["transactiondate"] = display_df["transactiondate"].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else "")
-                            display_df["amount"] = display_df["amount"].apply(lambda x: f"${x:,.2f}" if pd.notna(x) else "")
-                            
-                            with st.form("venmo_preview_form"):
+                            with st.form("venmo_form"):
+                                # Reorder columns for display
+                                display_df_ordered = display_df[["transactiondate", "amount", "details", "budget", "purpose", "account"]]
+                                
+                                # Create committee ID options with labels
+                                committee_id_options = [""] + [
+                                    "1 - Dues", "2 - Treasury", "3 - Transfers", "4 - President",
+                                    "5 - Membership", "6 - Corporate Relations", "7 - Consulting",
+                                    "8 - Meeting Food", "9 - Marketing", "10 - Professional Development",
+                                    "11 - Sponsorship / Donation", "12 - Overhead", "13 - Merch",
+                                    "14 - Road Trip", "15 - Technology", "16 - Passport",
+                                    "17 - Refunded", "18 - Formal"
+                                ]
+                                
                                 edited_df = st.data_editor(
-                                    display_df,
+                                    display_df_ordered,
                                     column_config={
-                                        "transactiondate": st.column_config.TextColumn(
-                                            "Date",
-                                            disabled=True,
-                                        ),
-                                        "amount": st.column_config.TextColumn(
-                                            "Amount",
-                                            disabled=True,
-                                        ),
-                                        "details": st.column_config.TextColumn(
-                                            "Details",
-                                            disabled=True,
-                                        ),
-                                        "purpose": st.column_config.SelectboxColumn(
-                                            "Purpose",
-                                            options=[""] + purpose_options,
-                                            required=False
-                                        ),
+                                        "transactiondate": st.column_config.TextColumn("Date", disabled=True),
+                                        "amount": st.column_config.TextColumn("Amount", disabled=True),
+                                        "details": st.column_config.TextColumn("Details", disabled=True),
                                         "budget": st.column_config.SelectboxColumn(
                                             "Committee ID",
-                                            options=committee_options,
+                                            options=committee_id_options,
                                             required=False,
-                                            help="Select the committee ID (see reference above)",
-                                        )
+                                            help="Select the committee ID (see reference above)"
+                                        ),
+                                        "purpose": st.column_config.SelectboxColumn(
+                                            "Purpose", options=[""] + purpose_options, required=False
+                                        ),
+                                        "account": st.column_config.TextColumn("Account", disabled=True)
                                     },
-                                    disabled=False,
                                     hide_index=True,
                                     key="venmo_editor"
                                 )
                                 
-                                submitted = st.form_submit_button("Process and Insert Venmo Transactions")
-                                
-                                if submitted:
-                                    with st.spinner("Inserting transactions..."):
-                                        try:
-                                            records = []
-                                            for _, r in df_proc.iterrows():
-                                                mapped_budget = None
-                                                # Prefer explicit budget column (matching committee name) when provided
-                                                try:
-                                                    raw_budget = r.get('budget') if isinstance(r, dict) else r['budget']
-                                                except Exception:
-                                                    raw_budget = None
+                                if st.form_submit_button("Process and Insert Venmo Transactions"):
+                                    # Update df_proc with edited values
+                                    for idx, row in edited_df.iterrows():
+                                        if row['purpose']:
+                                            df_proc.at[idx, 'purpose'] = row['purpose']
+                                        if row['budget']:
+                                            df_proc.at[idx, 'budget'] = row['budget']
+                                    
+                                    # Store in session state for confirmation step
+                                    st.session_state.venmo_ready_to_upload = True
+                                    st.session_state.venmo_records = []
+                                    
+                                    for _, r in df_proc.iterrows():
+                                        budget_id = None
+                                        if r['budget'] and str(r['budget']).strip():
+                                            budget_str = str(r['budget']).strip()
+                                            try:
+                                                if '-' in budget_str:
+                                                    budget_id = int(budget_str.split('-')[0].strip())
+                                                else:
+                                                    budget_id = int(budget_str)
+                                            except:
+                                                pass
+                                        elif r['purpose'] == 'Dues':
+                                            budget_id = 1
+                                        
+                                        st.session_state.venmo_records.append({
+                                            'transaction_date': r['transactiondate'].strftime('%Y-%m-%d') if pd.notna(r['transactiondate']) else None,
+                                            'amount': float(r['amount']) if pd.notna(r['amount']) else 0.0,
+                                            'details': str(r['details']) if pd.notna(r['details']) else '',
+                                            'purpose': r['purpose'] if pd.notna(r['purpose']) else None,
+                                            'account': r['account'],
+                                            'budget_category': budget_id
+                                        })
+                                    
+                                    st.session_state.venmo_filename = venmo_filename
+                                    st.rerun()
 
-                                                if raw_budget and str(raw_budget).strip() != '':
-                                                    rb = str(raw_budget).strip()
-                                                    # try exact case-insensitive match to committee name
-                                                    try:
-                                                        match = df_committees[df_committees['Committee_Name'].str.lower() == rb.lower()]
-                                                        if not match.empty:
-                                                            mapped_budget = int(match['CommitteeID'].iloc[0])
-                                                    except Exception:
-                                                        mapped_budget = None
-
-                                                # If no explicit budget, try mapping from purpose (straightforward cases)
-                                                if mapped_budget is None:
-                                                    try:
-                                                        mapped_budget = map_purpose_to_budget_id(r['purpose'])
-                                                    except Exception:
-                                                        mapped_budget = None
-
-                                                # Special rule: if purpose is Food & Drink and no explicit committee budget, map to 8
-                                                try:
-                                                    purpose_val = r['purpose'] if pd.notna(r['purpose']) else None
-                                                except Exception:
-                                                    purpose_val = None
-                                                if mapped_budget is None and purpose_val == 'Food & Drink':
-                                                    mapped_budget = 8
-
-                                                records.append({
-                                                    'transaction_date': r['transactiondate'].strftime('%Y-%m-%d') if pd.notna(r['transactiondate']) else None,
-                                                    'amount': float(r['amount']) if pd.notna(r['amount']) else 0.0,
-                                                    'details': str(r['details']) if pd.notna(r['details']) else '',
-                                                    'purpose': r['purpose'] if pd.notna(r['purpose']) else None,
-                                                    'account': r['account'],
-                                                    'budget_category': mapped_budget
-                                                })
-
-                                            # Check for duplicates before inserting
-                                            if records:
-                                                # Load existing transactions for duplicate check
-                                                existing_transactions = load_transactions_df()
-                                                
-                                                # Check for duplicates
-                                                non_duplicates, duplicates = check_duplicate_transactions(records, existing_transactions)
-                                                
-                                                if duplicates:
-                                                    st.warning(f"Found {len(duplicates)} potential duplicate transactions:")
-                                                    # Show duplicates in a table
-                                                    dup_df = pd.DataFrame(duplicates)
-                                                    st.dataframe(
-                                                        dup_df[['transaction_date', 'amount', 'details', 'existing_id']].rename(
-                                                            columns={'existing_id': 'Existing Transaction ID'}
-                                                        ),
-                                                        hide_index=True
-                                                    )
-                                                    
-                                                    # Ask user what to do with duplicates
-                                                    handle_dups = st.radio(
-                                                        "How would you like to handle duplicate transactions?",
-                                                        ["Skip duplicates", "Insert all anyway"],
-                                                        index=0,
-                                                        key="venmo_dups"
-                                                    )
-                                                    
-                                                    if handle_dups == "Skip duplicates":
-                                                        records = non_duplicates
-                                                        if not records:
-                                                            st.info("All transactions were duplicates. Nothing to insert.")
-                                                            proceed_with_insert = False
-                                                
-                                                if records:
-                                                    admin_client = None
-                                                    try:
-                                                        admin_client = get_admin()
-                                                    except Exception:
-                                                        admin_client = None
-
-                                                    client = admin_client or supabase
-                                                    try:
-                                                        client.table('transactions').insert(records).execute()
-
-                                                        # record uploaded filename
-                                                        client.table('uploaded_files').insert({
-                                                            'file_name': filename
-                                                        }).execute()
-
-                                                        st.success(f"Successfully inserted {len(records)} non-duplicate transactions and recorded file '{filename}'.")
-                                                        st.cache_data.clear()
-                                                    except Exception as ee:
-                                                        # Provide clearer guidance for RLS errors
-                                                        msg = str(ee)
-                                                        if 'row-level security' in msg.lower() or '42501' in msg:
-                                                            st.error("Insert blocked by Row-Level Security (RLS).\n" \
-                                                                    "Solutions: add a Supabase service_role key to `.streamlit/secrets.toml` under `supabase.service_key` and restart the app, or update RLS policies to allow the current client to write to `transactions`.")
-                                                        else:
-                                                            st.error(f"Failed to insert transactions: {ee}")
-                                            else:
-                                                st.info("No records to insert.")
-
-                                        except Exception as e:
-                                            st.error(f"Failed to insert transactions: {e}")
-
+                            # Outside the form - check if ready to upload
+                            if st.session_state.get('venmo_ready_to_upload', False):
+                                insert_transactions_with_duplicate_check(
+                                    st.session_state.venmo_records, 
+                                    st.session_state.venmo_filename, 
+                                    supabase, 
+                                    "venmo"
+                                )
+                    
                     except Exception as e:
                         st.error(f"Error processing file: {e}")
-
-    # Checking tab
-    with tabs[1]:
-        uploaded_file = st.file_uploader("Upload Checking/Wells Fargo statement (CSV/Excel)", type=["xlsx", "xls", "csv"], key="checking_upload")
-        if uploaded_file is not None:
-            filename = uploaded_file.name
-            if 'checking' not in filename.lower():
-                st.error("Filename does not look like a checking export. Include 'checking' in the filename.")
+    
+    # ========== CHECKING TAB ==========
+    with tab_checking:
+        checking_uploaded_file = st.file_uploader("Upload Checking/Wells Fargo statement (CSV/Excel)", 
+                                        type=["xlsx", "xls", "csv"], key="checking_upload")
+        if checking_uploaded_file:
+            checking_filename = checking_uploaded_file.name
+            if 'checking' not in checking_filename.lower():
+                st.error("Filename should include 'checking'.")
             else:
-                existing = supabase.table("uploaded_files").select("*").eq("file_name", filename).execute()
+                existing = supabase.table("uploaded_files").select("*").eq("file_name", checking_filename).execute()
                 if existing.data:
-                    st.warning("This file has already been uploaded. Aborting to avoid duplicates.")
+                    st.warning("File already uploaded.")
                 else:
                     try:
-                        # read - checking files often have no header
-                        if filename.lower().endswith('.csv'):
-                            df_raw = pd.read_csv(uploaded_file, header=None)
-                        else:
-                            df_raw = pd.read_excel(uploaded_file, header=None)
-
-                        # Expect at least 3 meaningful columns: date, amount, details
+                        df_raw = pd.read_csv(checking_uploaded_file, header=None) if checking_filename.lower().endswith('.csv') else pd.read_excel(checking_uploaded_file, header=None)
+                        
                         if df_raw.shape[1] < 3:
-                            st.error("Checking file doesn't have expected columns (date, amount, details).")
+                            st.error("File doesn't have expected columns.")
                         else:
-                            df_proc = pd.DataFrame()
-                            df_proc['transactiondate'] = pd.to_datetime(df_raw.iloc[:,0], errors='coerce').dt.date
-                            df_proc['amount'] = df_raw.iloc[:,1].apply(numeric_amount)
-                            # details are in column E (index 4) per user; fall back to last column if not present
-                            if df_raw.shape[1] > 4:
-                                df_proc['details'] = df_raw.iloc[:,4].astype(str)
-                            else:
-                                df_proc['details'] = df_raw.iloc[:,df_raw.shape[1]-1].astype(str)
-                            df_proc['budget'] = ''
+                            df_proc = pd.DataFrame({
+                                'transactiondate': pd.to_datetime(df_raw.iloc[:,0], errors='coerce').dt.date,
+                                'amount': df_raw.iloc[:,1].apply(numeric_amount),
+                                'details': (df_raw.iloc[:,4] if df_raw.shape[1] > 4 else df_raw.iloc[:,-1]).astype(str),
+                                'budget': '',
+                                'account': 'Wells'
+                            })
+                            
                             df_proc['purpose'] = df_proc['details'].apply(classify_purpose)
-                            df_proc['account'] = 'Wells'
-
+                            df_proc = clean_proc_df(df_proc)
+                            
+                            # Auto-fill budget for Dues - convert to labeled format
+                            df_proc['budget'] = df_proc['purpose'].apply(lambda p: '1 - Dues' if p == 'Dues' else '')
+                            
                             st.subheader("Preview and Edit")
                             
-                            # Create purpose options
-                            purpose_options = [
+                            display_df = df_proc.copy()
+                            display_df["transactiondate"] = display_df["transactiondate"].apply(
+                                lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else ""
+                            )
+                            display_df["amount"] = display_df["amount"].apply(
+                                lambda x: f"${x:,.2f}" if pd.notna(x) else ""
+                            )
+                            
+                            purpose_options = sorted([
                                 "Dues", "Food & Drink", "Tax", "Road Trip", "Social Events",
                                 "Sponsorship / Donation", "Travel Reimbursement", "Transfers",
                                 "Merch", "Professional Events", "Misc.", "ISOM Passport",
                                 "GBM Catering", "Formal", "Refunded", "Meeting Food",
                                 "Technology", "Marketing", "Professional Development"
-                            ]
-                            purpose_options.sort()
+                            ])
                             
-                            # Create committee mapping for display
-                            committee_options = [""] + [str(i) for i in range(1, 19)]
-                            
-                            # Convert dates to string for display
-                            display_df = df_proc.copy()
-                            display_df["transactiondate"] = display_df["transactiondate"].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else "")
-                            display_df["amount"] = display_df["amount"].apply(lambda x: f"${x:,.2f}" if pd.notna(x) else "")
-                            
-                            with st.form("checking_preview_form"):
-                                edited_df = st.data_editor(
-                                    display_df,
-                                    column_config={
-                                        "transactiondate": st.column_config.TextColumn(
-                                            "Date",
-                                            disabled=True,
-                                        ),
-                                        "amount": st.column_config.TextColumn(
-                                            "Amount",
-                                            disabled=True,
-                                        ),
-                                        "details": st.column_config.TextColumn(
-                                            "Details",
-                                            disabled=True,
-                                        ),
-                                        "purpose": st.column_config.SelectboxColumn(
-                                            "Purpose",
-                                            options=[""] + purpose_options,
-                                            required=False
-                                        ),
-                                        "budget": st.column_config.SelectboxColumn(
-                                            "Committee ID",
-                                            options=committee_options,
-                                            required=False,
-                                            help="Select the committee ID (see reference above)",
-                                        )
-                                    },
-                                    disabled=False,
-                                    hide_index=True,
-                                    key="checking_editor"
+                            with st.form("checking_form"):
+                                    # Reorder columns for display
+                                    display_df_ordered = display_df[["transactiondate", "amount", "details", "budget", "purpose", "account"]]
+                                    
+                                    # Create committee ID options with labels
+                                    committee_id_options = [""] + [
+                                        "1 - Dues", "2 - Treasury", "3 - Transfers", "4 - President",
+                                        "5 - Membership", "6 - Corporate Relations", "7 - Consulting",
+                                        "8 - Meeting Food", "9 - Marketing", "10 - Professional Development",
+                                        "11 - Sponsorship / Donation", "12 - Overhead", "13 - Merch",
+                                        "14 - Road Trip", "15 - Technology", "16 - Passport",
+                                        "17 - Refunded", "18 - Formal"
+                                    ]
+                                    
+                                    edited_df = st.data_editor(
+                                        display_df_ordered,
+                                        column_config={
+                                            "transactiondate": st.column_config.TextColumn("Date", disabled=True),
+                                            "amount": st.column_config.TextColumn("Amount", disabled=True),
+                                            "details": st.column_config.TextColumn("Details", disabled=True),
+                                            "budget": st.column_config.SelectboxColumn(
+                                                "Committee ID",
+                                                options=committee_id_options,
+                                                required=False,
+                                                help="Select the committee ID (see reference above)"
+                                            ),
+                                            "purpose": st.column_config.SelectboxColumn(
+                                                "Purpose", options=[""] + purpose_options, required=False
+                                            ),
+                                            "account": st.column_config.TextColumn("Account", disabled=True)
+                                        },
+                                        hide_index=True,
+                                        key="checking_editor"
+                                    )
+                                
+                                    if st.form_submit_button("Process and Insert Checking Transactions"):
+                                        # Update df_proc with edited values
+                                        for idx, row in edited_df.iterrows():
+                                            if row['purpose']:
+                                                df_proc.at[idx, 'purpose'] = row['purpose']
+                                            if row['budget']:
+                                                df_proc.at[idx, 'budget'] = row['budget']
+                                        
+                                        # Store in session state for confirmation step
+                                        st.session_state.checking_ready_to_upload = True
+                                        st.session_state.checking_records = []
+                                        
+                                        for _, r in df_proc.iterrows():
+                                            budget_id = None
+                                            if r['budget'] and str(r['budget']).strip():
+                                                budget_str = str(r['budget']).strip()
+                                                try:
+                                                    if '-' in budget_str:
+                                                        budget_id = int(budget_str.split('-')[0].strip())
+                                                    else:
+                                                        budget_id = int(budget_str)
+                                                except:
+                                                    pass
+                                            elif r['purpose'] == 'Dues':
+                                                budget_id = 1
+                                            
+                                            st.session_state.checking_records.append({
+                                                'transaction_date': r['transactiondate'].strftime('%Y-%m-%d') if pd.notna(r['transactiondate']) else None,
+                                                'amount': float(r['amount']) if pd.notna(r['amount']) else 0.0,
+                                                'details': str(r['details']) if pd.notna(r['details']) else '',
+                                                'purpose': r['purpose'] if pd.notna(r['purpose']) else None,
+                                                'account': r['account'],
+                                                'budget_category': budget_id
+                                            })
+                                        
+                                        st.session_state.checking_filename = checking_filename
+                                        st.rerun()
+
+                            # Outside the form - check if ready to upload
+                            if st.session_state.get('checking_ready_to_upload', False):
+                                insert_transactions_with_duplicate_check(
+                                    st.session_state.checking_records, 
+                                    st.session_state.checking_filename, 
+                                    supabase, 
+                                    "checking"
                                 )
-                                
-                                submitted = st.form_submit_button("Process and Insert Checking Transactions")
-                                
-                                if submitted:
-                                    with st.spinner("Inserting transactions..."):
-                                        try:
-                                            records = []
-                                            for _, r in df_proc.iterrows():
-                                                mapped_budget = None
-                                                # Prefer explicit budget column (matching committee name) when provided
-                                                try:
-                                                    raw_budget = r.get('budget') if isinstance(r, dict) else r['budget']
-                                                except Exception:
-                                                    raw_budget = None
-
-                                                if raw_budget and str(raw_budget).strip() != '':
-                                                    rb = str(raw_budget).strip()
-                                                    # try exact case-insensitive match to committee name
-                                                    try:
-                                                        match = df_committees[df_committees['Committee_Name'].str.lower() == rb.lower()]
-                                                        if not match.empty:
-                                                            mapped_budget = int(match['CommitteeID'].iloc[0])
-                                                    except Exception:
-                                                        mapped_budget = None
-
-                                                # If no explicit budget, try mapping from purpose (straightforward cases)
-                                                if mapped_budget is None:
-                                                    try:
-                                                        mapped_budget = map_purpose_to_budget_id(r['purpose'])
-                                                    except Exception:
-                                                        mapped_budget = None
-
-                                                # Special rule: if purpose is Food & Drink and no explicit committee budget, map to 8
-                                                try:
-                                                    purpose_val = r['purpose'] if pd.notna(r['purpose']) else None
-                                                except Exception:
-                                                    purpose_val = None
-                                                if mapped_budget is None and purpose_val == 'Food & Drink':
-                                                    mapped_budget = 8
-
-                                                records.append({
-                                                    'transaction_date': r['transactiondate'].strftime('%Y-%m-%d') if pd.notna(r['transactiondate']) else None,
-                                                    'amount': float(r['amount']) if pd.notna(r['amount']) else 0.0,
-                                                    'details': str(r['details']) if pd.notna(r['details']) else '',
-                                                    'purpose': r['purpose'] if pd.notna(r['purpose']) else None,
-                                                    'account': r['account'],
-                                                    'budget_category': mapped_budget
-                                                })
-
-                                            if records:
-                                                # Load existing transactions for duplicate check
-                                                existing_transactions = load_transactions_df()
-                                                
-                                                # Check for duplicates
-                                                non_duplicates, duplicates = check_duplicate_transactions(records, existing_transactions)
-                                                
-                                                proceed_with_insert = True
-                                                if duplicates:
-                                                    st.warning(f"Found {len(duplicates)} potential duplicate transactions:")
-                                                    # Show duplicates in a table
-                                                    dup_df = pd.DataFrame(duplicates)
-                                                    st.dataframe(
-                                                        dup_df[['transaction_date', 'amount', 'details', 'existing_id']].rename(
-                                                            columns={'existing_id': 'Existing Transaction ID'}
-                                                        ),
-                                                        hide_index=True
-                                                    )
-                                                    
-                                                    # Ask user what to do with duplicates
-                                                    handle_dups = st.radio(
-                                                        "How would you like to handle duplicate transactions?",
-                                                        ["Skip duplicates", "Insert all anyway"],
-                                                        index=0,
-                                                        key="checking_dups"
-                                                    )
-                                                    
-                                                    if handle_dups == "Skip duplicates":
-                                                        records = non_duplicates
-                                                        if not records:
-                                                            st.info("All transactions were duplicates. Nothing to insert.")
-                                                            proceed_with_insert = False
-                                                
-                                                if proceed_with_insert and records:
-                                                    admin_client = None
-                                                    try:
-                                                        admin_client = get_admin()
-                                                    except Exception:
-                                                        admin_client = None
-
-                                                    client = admin_client or supabase
-                                                    try:
-                                                        client.table('transactions').insert(records).execute()
-                                                        client.table('uploaded_files').insert({'file_name': filename}).execute()
-                                                        st.success(f"Successfully inserted {len(records)} non-duplicate transactions and recorded file '{filename}'.")
-                                                        st.cache_data.clear()
-                                                    except Exception as ee:
-                                                        msg = str(ee)
-                                                        if 'row-level security' in msg.lower() or '42501' in msg:
-                                                            st.error("Insert blocked by Row-Level Security (RLS).\n" \
-                                                                    "Solutions: add a Supabase service_role key to `.streamlit/secrets.toml` under `supabase.service_key` and restart the app, or update RLS policies to allow the current client to write to `transactions`.")
-                                                        else:
-                                                            st.error(f"Failed to insert transactions: {ee}")
-                                            else:
-                                                st.info("No records to insert.")
-
-                                        except Exception as e:
-                                            st.error(f"Failed to insert transactions: {e}")
-
+                                                        
                     except Exception as e:
-                        st.error(f"Error reading checking file: {e}")
+                        st.error(f"Error reading file: {e}")
+
+# ============================================================================
+# PAGE: MANAGE TERMS
+# ============================================================================
 
 elif page == "📅 Manage Terms":
     st.header("📅 Manage Academic Terms")
     
-    # Show current terms
     st.subheader("Current Terms")
     if not df_terms.empty:
         st.dataframe(
@@ -782,45 +634,28 @@ elif page == "📅 Manage Terms":
             use_container_width=True,
             hide_index=True
         )
-    else:
-        st.info("No terms found in the database.")
     
     st.divider()
-    
-    # Add new term
     st.subheader("Add New Term")
     
     col1, col2 = st.columns(2)
-    
     with col1:
         term_id = st.text_input("Term ID (e.g., FA25, SP26)")
-        semester = st.text_input("Semester Name (e.g., Fall 2024, Spring 2025)")
+        semester = st.text_input("Semester Name (e.g., Fall 2024)")
         
-        # Semester validation helper
         if semester:
-            # Check for proper capitalization and format
             semester_lower = semester.lower()
-            valid_formats = [
-                "fall", "spring", "summer", "winter"
-            ]
+            season_valid = any(semester_lower.startswith(s) for s in ["fall", "spring", "summer", "winter"])
+            year_valid = re.search(r'\b(19|20)\d{2}\b', semester) is not None
             
-            # Check if semester starts with valid season
-            season_valid = any(semester_lower.startswith(season) for season in valid_formats)
-            
-            # Check for proper year format (4 digits)
-            import re
-            year_match = re.search(r'\b(19|20)\d{2}\b', semester)
-            year_valid = year_match is not None
-            
-            # Show validation feedback
             if not season_valid:
-                st.error("❌ Semester should start with: Fall, Spring, Summer, or Winter")
+                st.error("❌ Start with: Fall, Spring, Summer, or Winter")
             elif not year_valid:
-                st.error("❌ Semester should include a 4-digit year (e.g., 2025)")
+                st.error("❌ Include a 4-digit year")
             elif semester != semester.title():
-                st.warning("⚠️ Consider using proper capitalization (e.g., 'Fall 2025' instead of 'fall 25')")
+                st.warning("⚠️ Consider proper capitalization")
             else:
-                st.success("✅ Valid semester format!")
+                st.success("✅ Valid format!")
     
     with col2:
         start_date = st.date_input("Start Date")
@@ -828,53 +663,40 @@ elif page == "📅 Manage Terms":
     
     if st.button("➕ Add Term"):
         if term_id and semester and start_date and end_date:
-            # Validate semester format before proceeding
             semester_lower = semester.lower()
-            valid_formats = ["fall", "spring", "summer", "winter"]
-            season_valid = any(semester_lower.startswith(season) for season in valid_formats)
+            season_valid = any(semester_lower.startswith(s) for s in ["fall", "spring", "summer", "winter"])
+            year_valid = re.search(r'\b(19|20)\d{2}\b', semester) is not None
             
-            import re
-            year_match = re.search(r'\b(19|20)\d{2}\b', semester)
-            year_valid = year_match is not None
-            
-            if not season_valid:
-                st.error("❌ Invalid semester format. Must start with: Fall, Spring, Summer, or Winter")
-            elif not year_valid:
-                st.error("❌ Invalid year format. Must include a 4-digit year (e.g., 2025)")
+            if not season_valid or not year_valid:
+                st.error("❌ Invalid semester format")
             else:
                 try:
-                    # Auto-correct capitalization if needed
-                    corrected_semester = semester.title()
-                    
                     term_data = {
                         "TermID": term_id,
-                        "Semester": corrected_semester,
+                        "Semester": semester.title(),
                         "start_date": start_date.strftime("%Y-%m-%d"),
                         "end_date": end_date.strftime("%Y-%m-%d")
                     }
                     
-                    # Check if term already exists
                     existing = supabase.table("terms").select("*").eq("TermID", term_id).execute()
                     if existing.data:
                         st.warning(f"Term {term_id} already exists!")
                     else:
                         supabase.table("terms").insert(term_data).execute()
-                        st.success(f"✅ Term {term_id} ({corrected_semester}) added successfully!")
+                        st.success(f"✅ Term {term_id} added!")
                         st.cache_data.clear()
                         st.rerun()
-                        
                 except Exception as e:
-                    st.error(f"❌ Error adding term: {str(e)}")
-        else:
-            st.error("Please fill in all fields.")
+                    st.error(f"❌ Error: {e}")
+
+# ============================================================================
+# PAGE: MANAGE BUDGETS
+# ============================================================================
 
 elif page == "💰 Manage Budgets":
     st.header("💰 Manage Committee Budgets")
     
-    # Show current budgets
     st.subheader("Current Budgets")
-    
-    # Get current terms
     current_terms = df_terms.sort_values("start_date", ascending=False)
     
     if not current_terms.empty:
@@ -884,63 +706,45 @@ elif page == "💰 Manage Budgets":
             format_func=lambda x: f"{x} - {current_terms[current_terms['TermID'] == x]['Semester'].iloc[0]}"
         )
         
-        # Show budgets for selected term
         term_budgets = df_budgets[df_budgets["termid"] == selected_term].copy()
-        # Allowed committees for budgeting
-        allowed_committee_names = {
-            "consulting",
-            "corporate relations",
-            "marketing",
-            "meeting food",
-            "membership",
-            "merch",
-            "overhead",
-            "passport",
-            "president",
-            "professional development",
-            "treasury",
+        
+        allowed_committees = {
+            "consulting", "corporate relations", "marketing", "meeting food",
+            "membership", "merch", "overhead", "passport", "president",
+            "professional development", "treasury"
         }
+        
         committees_df = df_committees.copy()
         committees_df["_name_lower"] = committees_df["Committee_Name"].str.lower()
-        allowed_committees_df = committees_df[committees_df["_name_lower"].isin(allowed_committee_names)].copy()
+        allowed_committees_df = committees_df[committees_df["_name_lower"].isin(allowed_committees)].copy()
         allowed_committee_ids = allowed_committees_df["CommitteeID"].tolist()
-
+        
         if not term_budgets.empty:
             term_budgets = term_budgets.merge(
                 df_committees[["CommitteeID", "Committee_Name"]], 
                 left_on="committeeid", right_on="CommitteeID", how="left"
             )
-            # Restrict display to allowed committees only
             term_budgets = term_budgets[term_budgets["committeeid"].isin(allowed_committee_ids)]
             
-            # Build a complete display list of allowed committees with budgets (fill missing with 0)
             display_budgets = (
                 allowed_committees_df[["CommitteeID", "Committee_Name"]]
-                .merge(
-                    term_budgets[["committeeid", "budget_amount"]],
-                    left_on="CommitteeID",
-                    right_on="committeeid",
-                    how="left"
-                )
+                .merge(term_budgets[["committeeid", "budget_amount"]], 
+                      left_on="CommitteeID", right_on="committeeid", how="left")
                 .fillna({"budget_amount": 0.0})
             )
             st.dataframe(
                 display_budgets[["Committee_Name", "budget_amount"]]
-                .rename(columns={"Committee_Name": "Committee", "budget_amount": "Budget Amount"}),
+                .rename(columns={"Committee_Name": "Committee", "budget_amount": "Budget"}),
                 use_container_width=True,
                 hide_index=True
             )
         else:
-            # Get the semester name for the selected term
             semester_name = current_terms[current_terms['TermID'] == selected_term]['Semester'].iloc[0]
-            st.info(f"No budgets set for {semester_name} semester")
+            st.info(f"No budgets for {semester_name}")
         
         st.divider()
-        
-        # Add/Update budgets
         st.subheader("Set Committee Budgets")
         
-        # Get committees (allowed only)
         committees = allowed_committees_df["Committee_Name"].tolist()
         committee_ids = allowed_committees_df[["CommitteeID", "Committee_Name"]]
         
@@ -948,121 +752,106 @@ elif page == "💰 Manage Budgets":
         col1, col2 = st.columns(2)
         
         for i, committee in enumerate(committees):
-            # GET EXISTING BUDGET VALUE FOR THIS COMMITTEE - THIS IS THE NEW CODE
             existing_budget = 0.0
             if not term_budgets.empty:
                 committee_id = committee_ids[committee_ids["Committee_Name"] == committee]["CommitteeID"].iloc[0]
-                matching_budgets = term_budgets[term_budgets["committeeid"] == committee_id]
-                if not matching_budgets.empty:
-                    existing_budget = float(matching_budgets["budget_amount"].iloc[0])
+                matching = term_budgets[term_budgets["committeeid"] == committee_id]
+                if not matching.empty:
+                    existing_budget = float(matching["budget_amount"].iloc[0])
             
             with col1 if i % 2 == 0 else col2:
                 budget_inputs[committee] = st.number_input(
                     f"{committee} Budget",
                     min_value=0.0,
-                    value=existing_budget,  # USE EXISTING VALUE INSTEAD OF 0.0
+                    value=existing_budget,
                     step=100.0,
                     format="%.2f"
                 )
         
         if st.button("💾 Save Budgets"):
             try:
-                # Delete existing budgets for this term (allowed committees only)
                 supabase.table("committeebudgets").delete().eq("termid", selected_term).in_("committeeid", allowed_committee_ids).execute()
                 
-                # Insert new budgets - CHANGED TO INCLUDE ALL VALUES, NOT JUST > 0
                 for committee_name, budget_amount in budget_inputs.items():
                     committee_id = committee_ids[committee_ids["Committee_Name"] == committee_name]["CommitteeID"].iloc[0]
                     
-                    budget_data = {
+                    supabase.table("committeebudgets").insert({
                         "termid": selected_term,
                         "committeeid": int(committee_id),
                         "budget_amount": float(budget_amount)
-                    }
-                    
-                    supabase.table("committeebudgets").insert(budget_data).execute()
+                    }).execute()
                 
-                st.success("✅ Budgets saved successfully!")
+                st.success("✅ Budgets saved!")
                 st.cache_data.clear()
                 st.rerun()
-                
             except Exception as e:
-                st.error(f"❌ Error saving budgets: {str(e)}")
-    else:
-        st.info("No terms found. Please add terms first.")
+                st.error(f"❌ Error: {e}")
+
+# ============================================================================
+# PAGE: DATABASE TOOLS
+# ============================================================================
 
 elif page == "🔧 Database Tools":
     st.header("🔧 Database Management Tools")
     
     st.subheader("Data Export")
-    
     col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.button("📥 Export Transactions"):
             csv = df_transactions.to_csv(index=False)
             st.download_button(
-                label="Download Transactions CSV",
-                data=csv,
-                file_name=f"transactions_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
+                "Download CSV",
+                csv,
+                f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                "text/csv"
             )
     
     with col2:
         if st.button("📥 Export Budgets"):
             csv = df_budgets.to_csv(index=False)
             st.download_button(
-                label="Download Budgets CSV",
-                data=csv,
-                file_name=f"budgets_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
+                "Download CSV",
+                csv,
+                f"budgets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                "text/csv"
             )
     
     with col3:
         if st.button("📥 Export Terms"):
             csv = df_terms.to_csv(index=False)
             st.download_button(
-                label="Download Terms CSV",
-                data=csv,
-                file_name=f"terms_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
+                "Download CSV",
+                csv,
+                f"terms_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                "text/csv"
             )
     
     st.divider()
-    
     st.subheader("Database Statistics")
     
     col1, col2, col3, col4 = st.columns(4)
-    
     with col1:
         st.metric("Total Terms", len(df_terms))
-    
     with col2:
         st.metric("Total Committees", len(df_committees))
-    
     with col3:
         st.metric("Total Budgets", len(df_budgets))
-    
     with col4:
         st.metric("Total Transactions", len(df_transactions))
     
-    # Data validation
     st.subheader("Data Validation")
-    
-    # Check for orphaned records
     orphaned_budgets = df_budgets[~df_budgets["committeeid"].isin(df_committees["CommitteeID"])]
     orphaned_transactions = df_transactions[~df_transactions["budget_category"].isin(df_committees["CommitteeID"])]
     
     if not orphaned_budgets.empty:
         st.warning(f"⚠️ Found {len(orphaned_budgets)} orphaned budget records")
-    
     if not orphaned_transactions.empty:
         st.warning(f"⚠️ Found {len(orphaned_transactions)} orphaned transaction records")
-    
     if orphaned_budgets.empty and orphaned_transactions.empty:
         st.success("✅ No data integrity issues found")
 
-# Add logout button
+# Logout
 st.sidebar.divider()
 if st.sidebar.button("🚪 Logout from Treasury"):
     st.session_state.treasury_authenticated = False

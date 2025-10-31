@@ -94,27 +94,23 @@ if not months:
     st.info("No transactions found for the selected semester.")
     st.stop()
 
-# Clear selected month when semester changes
+# Clear month selector when semester changes
 if "last_semester" not in st.session_state or st.session_state.last_semester != selected_semester:
     st.session_state.last_semester = selected_semester
-    if "selected_month" in st.session_state:
-        del st.session_state.selected_month
+    if "transaction_month_selector" in st.session_state:
+        del st.session_state.transaction_month_selector
 
-# Initialize or update selected month
-if "selected_month" not in st.session_state or st.session_state.selected_month not in months:
-    st.session_state.selected_month = months[-1]  # Default to most recent month
+# Initialize default month index
+default_month_index = len(months) - 1  # Default to most recent month
 
-# Month selector
+# Month selector - let the widget manage its own state
 selected_month = st.selectbox(
     "Select Month to Edit",
     months,
     format_func=lambda x: x.strftime("%B %Y"),
     key="transaction_month_selector",
-    index=months.index(st.session_state.selected_month)
+    index=default_month_index
 )
-
-# Update session state with selected month
-st.session_state.selected_month = selected_month
 
 # Get transactions for selected month
 month_transactions = (
@@ -124,13 +120,43 @@ month_transactions = (
     .sort_values("transaction_date")
 )
 
-# Add type filter: All / Income / Expense
-type_filter = st.selectbox(
-    "Filter by Transaction Type",
-    ["All", "Income", "Expense"],
-    index=0,
-    key="transaction_type_filter"
-)
+# Add filters side by side
+col1, col2 = st.columns(2)
+
+with col1:
+    # Account/Category filter
+    account_filter = st.selectbox(
+        "Filter by Category",
+        ["All", "Uncategorized", "Wells Fargo", "Venmo"],
+        index=0,
+        key="transaction_account_filter"
+    )
+
+with col2:
+    # Type filter: All / Income / Expense
+    type_filter = st.selectbox(
+        "Filter by Transaction Type",
+        ["All", "Income", "Expense"],
+        index=0,
+        key="transaction_type_filter"
+    )
+
+# Apply account filter
+if account_filter == "Uncategorized":
+    month_transactions = month_transactions[
+        month_transactions["budget_category"].isna() | 
+        (month_transactions["budget_category"] == "") |
+        month_transactions["purpose"].isna() | 
+        (month_transactions["purpose"] == "")
+    ]
+elif account_filter == "Wells Fargo":
+    month_transactions = month_transactions[
+        month_transactions["account"].str.lower().str.contains("well", na=False)
+    ]
+elif account_filter == "Venmo":
+    month_transactions = month_transactions[
+        month_transactions["account"].str.lower().str.contains("venmo", na=False)
+    ]
 
 # Apply type filter
 if type_filter == "Income":
@@ -156,7 +182,7 @@ if not month_transactions.empty:
     committee_options = [""] + [f"{i} - {committee_mapping.get(str(i), '')}" for i in range(1, 19)]
     
     # Initialize or refresh edited data when month or filter changes
-    current_filter_key = f"{selected_month}-{type_filter}"
+    current_filter_key = f"{selected_month}-{account_filter}-{type_filter}"
     if "edited_data" not in st.session_state or st.session_state.get("edited_filter_key") != current_filter_key:
         st.session_state.edited_data = month_transactions.copy()
         # Convert budget_category to the combined format for display
@@ -193,7 +219,7 @@ if not month_transactions.empty:
         
         # Display editable dataframe
         edited_df = st.data_editor(
-            display_df[["transaction_date", "amount", "details", "purpose", "budget_category"]],
+            display_df[["transaction_date", "amount", "details", "purpose", "budget_category", "account"]],
             column_config={
                 "transaction_date": st.column_config.TextColumn(
                     "Date",
@@ -205,6 +231,10 @@ if not month_transactions.empty:
                 ),
                 "details": st.column_config.TextColumn(
                     "Details",
+                    disabled=True,
+                ),
+                "account": st.column_config.TextColumn(
+                    "Account",
                     disabled=True,
                 ),
                 **editors

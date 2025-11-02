@@ -100,28 +100,39 @@ if "last_semester" not in st.session_state or st.session_state.last_semester != 
     if "transaction_month_selector" in st.session_state:
         del st.session_state.transaction_month_selector
 
-# Initialize default month index
-default_month_index = len(months) - 1  # Default to most recent month
+# Add "All Months" option to the beginning of the list
+month_options = ["All Months"] + months
+
+# Initialize default month index (0 = All Months)
+default_month_index = 0
 
 # Month selector - let the widget manage its own state
-selected_month = st.selectbox(
+selected_month_option = st.selectbox(
     "Select Month to Edit",
-    months,
-    format_func=lambda x: x.strftime("%B %Y"),
+    month_options,
+    format_func=lambda x: "All Months in Semester" if x == "All Months" else x.strftime("%B %Y"),
     key="transaction_month_selector",
     index=default_month_index
 )
 
-# Get transactions for selected month
-month_transactions = (
-    filtered_transactions[filtered_transactions["transaction_date"].dt.to_period('M') == selected_month]
-    .merge(df_committees[["CommitteeID", "Committee_Name"]], 
-           left_on="budget_category", right_on="CommitteeID", how="left")
-    .sort_values("transaction_date")
-)
+# Get transactions for selected month or all months
+if selected_month_option == "All Months":
+    month_transactions = (
+        filtered_transactions
+        .merge(df_committees[["CommitteeID", "Committee_Name"]], 
+               left_on="budget_category", right_on="CommitteeID", how="left")
+        .sort_values("transaction_date")
+    )
+else:
+    month_transactions = (
+        filtered_transactions[filtered_transactions["transaction_date"].dt.to_period('M') == selected_month_option]
+        .merge(df_committees[["CommitteeID", "Committee_Name"]], 
+               left_on="budget_category", right_on="CommitteeID", how="left")
+        .sort_values("transaction_date")
+    )
 
 # Add filters side by side
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     # Account/Category filter
@@ -133,6 +144,15 @@ with col1:
     )
 
 with col2:
+    # Search filter for details column
+    search_term = st.text_input(
+        "Search Details",
+        placeholder="Enter keywords...",
+        key="transaction_search_filter",
+        help="Search for specific words in transaction details"
+    )
+
+with col3:
     # Type filter: All / Income / Expense
     type_filter = st.selectbox(
         "Filter by Transaction Type",
@@ -158,6 +178,17 @@ elif account_filter == "Venmo":
         month_transactions["account"].str.lower().str.contains("venmo", na=False)
     ]
 
+# Apply search filter with sanitization
+if search_term:
+    # Sanitize input: remove special regex characters to prevent issues
+    import re
+    # Escape special regex characters for safe searching
+    sanitized_search = re.escape(search_term.strip())
+    if sanitized_search:  # Only apply if there's something to search after sanitization
+        month_transactions = month_transactions[
+            month_transactions["details"].str.contains(sanitized_search, case=False, na=False, regex=True)
+        ]
+
 # Apply type filter
 if type_filter == "Income":
     month_transactions = month_transactions[month_transactions["amount"] > 0]
@@ -182,7 +213,7 @@ if not month_transactions.empty:
     committee_options = [""] + [f"{i} - {committee_mapping.get(str(i), '')}" for i in range(1, 19)]
     
     # Initialize or refresh edited data when month or filter changes
-    current_filter_key = f"{selected_month}-{account_filter}-{type_filter}"
+    current_filter_key = f"{selected_month_option}-{account_filter}-{search_term}-{type_filter}"
     if "edited_data" not in st.session_state or st.session_state.get("edited_filter_key") != current_filter_key:
         st.session_state.edited_data = month_transactions.copy()
         # Convert budget_category to the combined format for display

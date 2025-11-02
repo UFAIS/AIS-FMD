@@ -242,7 +242,14 @@ def get_historical_budget_spending():
         historical_budget
         .merge(historical_spending, on=["Semester", "Committee_Name"], how="outer")
         .fillna({"Spent": 0, "budget_amount": 0})
-        .sort_values("Semester")
+    )
+    
+    # Sort chronologically by merging with terms to get start_date
+    historical_data = (
+        historical_data
+        .merge(df_terms[["Semester", "start_date"]], on="Semester", how="left")
+        .sort_values("start_date")
+        .drop(columns=["start_date"])
     )
     
     return historical_data
@@ -300,100 +307,6 @@ with col2:
 
 st.divider()
 
-# Income and Expense Breakdown
-st.header("💸 Income & Expense Breakdown")
-
-# Apply committee filter to income and expense data
-if selected_committee != "All Committees":
-    committee_id = df_committees[df_committees["Committee_Name"] == selected_committee]["CommitteeID"].iloc[0]
-    filtered_transactions_for_categories = filtered_transactions[filtered_transactions["budget_category"] == committee_id]
-else:
-    filtered_transactions_for_categories = filtered_transactions
-
-# Income analysis
-income_data = filtered_transactions_for_categories[filtered_transactions_for_categories["amount"] > 0].copy()
-income_data["Income_Type"] = "Other"
-
-# Categorize income
-income_categories = {
-    "Dues": ["Dues"],
-    "Merchandise": ["Merch", "Head Shot"],
-    "Sponsorship/Donation": ["Sponsorship", "Donation"],
-    "Events": ["Social Events", "Formal", "Professional Events", "Fundraiser", "ISOM Passport"],
-    "Refunds": ["Reimbursement", "Refunded"],
-    "Transfers": ["Transfers"]
-}
-
-for category, keywords in income_categories.items():
-    for keyword in keywords:
-        income_data.loc[income_data["purpose"].str.contains(keyword, case=False, na=False), "Income_Type"] = category
-
-# Expense analysis
-expense_data = filtered_transactions_for_categories[filtered_transactions_for_categories["amount"] < 0].copy()
-expense_data["amount"] = expense_data["amount"].abs()
-expense_data["Expense_Type"] = "Other"
-
-# Categorize expenses
-expense_categories = {
-    "Merchandise": ["Merch", "Head Shot"],
-    "Events": ["Social Events", "GBM Catering", "Formal", "Professional Events", "Fundraiser", "Road Trip", "ISOM Passport"],
-    "Food & Drink": ["Food", "Drink", "Catering"],
-    "Travel": ["Travel"],
-    "Reimbursements": ["Reimbursement", "Refunded"],
-    "Transfers": ["Transfers"],
-    "Tax & Fees": ["Tax"],
-    "Miscellaneous": ["Misc"]
-}
-
-for category, keywords in expense_categories.items():
-    for keyword in keywords:
-        expense_data.loc[expense_data["purpose"].str.contains(keyword, case=False, na=False), "Expense_Type"] = category
-
-# Display charts
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Income by Category")
-    if not income_data.empty:
-        income_by_type = income_data.groupby("Income_Type", as_index=False)["amount"].sum()
-        fig_income = px.pie(
-            income_by_type, 
-            values="amount", 
-            names="Income_Type", 
-            hole=0.4,
-            color_discrete_sequence=px.colors.qualitative.Set3
-        )
-        fig_income.update_traces(
-            textinfo="percent+label",
-            hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percent: %{percent}<extra></extra>"
-        )
-        fig_income.update_layout(margin=dict(t=20, b=20), height=400)
-        st.plotly_chart(fig_income, use_container_width=True)
-    else:
-        st.info("No income data available for the selected period.")
-
-with col2:
-    st.subheader("Expenses by Category")
-    if not expense_data.empty:
-        expense_by_type = expense_data.groupby("Expense_Type", as_index=False)["amount"].sum()
-        fig_expense = px.pie(
-            expense_by_type, 
-            values="amount", 
-            names="Expense_Type", 
-            hole=0.4,
-            color_discrete_sequence=px.colors.qualitative.Set1
-        )
-        fig_expense.update_traces(
-            textinfo="percent+label",
-            hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percent: %{percent}<extra></extra>"
-        )
-        fig_expense.update_layout(margin=dict(t=20, b=20), height=400)
-        st.plotly_chart(fig_expense, use_container_width=True)
-    else:
-        st.info("No expense data available for the selected period.")
-
-st.divider()
-
 # Financial Trends Analysis
 st.header("📈 Financial Trends")
 
@@ -416,10 +329,23 @@ if not historical_data.empty:
         )
     else:
         # Aggregate data for all committees
-        historical_data = historical_data.groupby("Semester", as_index=False).agg({
-            "budget_amount": "sum",
-            "Spent": "sum"
-        })
+        # First merge with terms to preserve chronological order
+        historical_with_dates = historical_data.merge(
+            df_terms[["Semester", "start_date"]], 
+            on="Semester", 
+            how="left"
+        )
+        
+        historical_data = (
+            historical_with_dates
+            .groupby(["Semester", "start_date"], as_index=False)
+            .agg({
+                "budget_amount": "sum",
+                "Spent": "sum"
+            })
+            .sort_values("start_date")
+            .drop(columns=["start_date"])
+        )
         
         # Create single plot for all committees
         fig = make_subplots(
@@ -540,3 +466,97 @@ if not historical_data.empty:
         """)
 else:
     st.info("No historical data available for the selected filters.")
+
+st.divider()
+
+# Income and Expense Breakdown
+st.header("💸 Income & Expense Breakdown")
+
+# Apply committee filter to income and expense data
+if selected_committee != "All Committees":
+    committee_id = df_committees[df_committees["Committee_Name"] == selected_committee]["CommitteeID"].iloc[0]
+    filtered_transactions_for_categories = filtered_transactions[filtered_transactions["budget_category"] == committee_id]
+else:
+    filtered_transactions_for_categories = filtered_transactions
+
+# Income analysis
+income_data = filtered_transactions_for_categories[filtered_transactions_for_categories["amount"] > 0].copy()
+income_data["Income_Type"] = "Other"
+
+# Categorize income
+income_categories = {
+    "Dues": ["Dues"],
+    "Merchandise": ["Merch", "Head Shot"],
+    "Sponsorship/Donation": ["Sponsorship", "Donation"],
+    "Events": ["Social Events", "Formal", "Professional Events", "Fundraiser", "ISOM Passport"],
+    "Refunds": ["Reimbursement", "Refunded"],
+    "Transfers": ["Transfers"]
+}
+
+for category, keywords in income_categories.items():
+    for keyword in keywords:
+        income_data.loc[income_data["purpose"].str.contains(keyword, case=False, na=False), "Income_Type"] = category
+
+# Expense analysis
+expense_data = filtered_transactions_for_categories[filtered_transactions_for_categories["amount"] < 0].copy()
+expense_data["amount"] = expense_data["amount"].abs()
+expense_data["Expense_Type"] = "Other"
+
+# Categorize expenses
+expense_categories = {
+    "Merchandise": ["Merch", "Head Shot"],
+    "Events": ["Social Events", "GBM Catering", "Formal", "Professional Events", "Fundraiser", "Road Trip", "ISOM Passport"],
+    "Food & Drink": ["Food", "Drink", "Catering"],
+    "Travel": ["Travel"],
+    "Reimbursements": ["Reimbursement", "Refunded"],
+    "Transfers": ["Transfers"],
+    "Tax & Fees": ["Tax"],
+    "Miscellaneous": ["Misc"]
+}
+
+for category, keywords in expense_categories.items():
+    for keyword in keywords:
+        expense_data.loc[expense_data["purpose"].str.contains(keyword, case=False, na=False), "Expense_Type"] = category
+
+# Display charts
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Income by Category")
+    if not income_data.empty:
+        income_by_type = income_data.groupby("Income_Type", as_index=False)["amount"].sum()
+        fig_income = px.pie(
+            income_by_type, 
+            values="amount", 
+            names="Income_Type", 
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        fig_income.update_traces(
+            textinfo="percent+label",
+            hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percent: %{percent}<extra></extra>"
+        )
+        fig_income.update_layout(margin=dict(t=20, b=20), height=400)
+        st.plotly_chart(fig_income, use_container_width=True)
+    else:
+        st.info("No income data available for the selected period.")
+
+with col2:
+    st.subheader("Expenses by Category")
+    if not expense_data.empty:
+        expense_by_type = expense_data.groupby("Expense_Type", as_index=False)["amount"].sum()
+        fig_expense = px.pie(
+            expense_by_type, 
+            values="amount", 
+            names="Expense_Type", 
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set1
+        )
+        fig_expense.update_traces(
+            textinfo="percent+label",
+            hovertemplate="<b>%{label}</b><br>Amount: $%{value:,.2f}<br>Percent: %{percent}<extra></extra>"
+        )
+        fig_expense.update_layout(margin=dict(t=20, b=20), height=400)
+        st.plotly_chart(fig_expense, use_container_width=True)
+    else:
+        st.info("No expense data available for the selected period.")

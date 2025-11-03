@@ -6,6 +6,10 @@ import pandas as pd
 import os
 import plotly.express as px
 
+# run if you're getting key error "'supbase'"
+# st.cache_data.clear()
+# st.cache_resource.clear()
+
 st.set_page_config(
     page_title="UF AIS Financial Management System",
     layout="wide",                # ← forces wide mode
@@ -103,6 +107,7 @@ def main_app(user_email: str):
         {"page": "views/Homepage.py",                "title": "Homepage",                                    "icon": ":material/home:",         "default": True},
         {"page": "views/Financial_Dashboard.py",     "title": "Financial Dashboard",                          "icon": ":material/analytics:"},
         {"page": "views/Transaction_Editor.py",      "title": "Transaction Editor",                           "icon": ":material/edit:"},
+        {"page": "views/AI_Assistant.py",            "title": "AI Assistant",                                 "icon": ":material/smart_toy:"},
         {"page": "views/Treasury_Management.py",     "title": "Treasury Management",                           "icon": ":material/account_balance:"},
     ]
 
